@@ -1,0 +1,326 @@
+import numpy as np
+import rospy
+
+from baxter_pykdl import baxter_kinematics
+from baxter_interface import Limb, Gripper
+from baxter_core_msgs.msg import CollisionDetectionState, DigitalIOState, JointCommand
+from baxter_core_msgs.srv import SolvePositionIK, SolvePositionIKRequest
+
+from actionlib import SimpleGoalState, SimpleActionClient
+from moveit_msgs.msg import RobotTrajectory, RobotState, DisplayTrajectory
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+from control_msgs.msg import FollowJointTrajectoryAction, FollowJointTrajectoryGoal
+from geometry_msgs.msg import Pose, PoseStamped
+from threading import Lock
+
+class ArmCommander(Limb):
+    """
+    This class overloads Limb from the  Baxter Python SDK adding the support of trajectories via RobotState and RobotTrajectory messages
+    Allows to control the entire arm either in joint space, or in task space, or with path planning, with simulation and a-priori collision detection
+    """
+    def __init__(self, name, rate=100, kinematics='robot'):
+        """
+        :param name:
+        :param rate:
+        :param kinematics: Kinematics solver, "robot", "kdl" or "ros"
+        :return:
+        """
+        Limb.__init__(self, name)
+        self._world = 'base'
+        self._gripper = Gripper(name)
+        self._rate = rospy.Rate(rate)
+
+        # Kinematics services: Selection among different services
+        self._kinematics_selected = kinematics
+        self._kinematics_services = {'kdl': self._get_ik_pykdl,
+                                     'robot': self._get_ik_robot,
+                                     'ros': None}
+
+        # Kinematics services: PyKDL
+        self._kinematics_pykdl = baxter_kinematics(name)
+
+        # Kinematics services: Robot
+        self._kinematics_robot_name = 'ExternalTools/{}/PositionKinematicsNode/IKService'.format(name)
+        self._kinematics_robot = rospy.ServiceProxy(self._kinematics_robot_name, SolvePositionIK)
+
+        # Execution attributes
+        rospy.Subscriber('/robot/limb/{}/collision_detection_state'.format(name), CollisionDetectionState, self._cb_collision, queue_size=1)
+        rospy.Subscriber('/robot/digital_io/{}_lower_cuff/state'.format(name), DigitalIOState, self._cb_dig_io, queue_size=1)
+        self._stop_reason = ''  # 'cuff' or 'collision' could cause a trajectory to be stopped
+        self._stop_lock = Lock()
+        action_server_name = "/robot/limb/{}/follow_joint_trajectory".format(self.name)
+        self.client = SimpleActionClient(action_server_name, FollowJointTrajectoryAction)
+
+        self._display_traj = rospy.Publisher("/move_group/display_planned_path", DisplayTrajectory, queue_size=1)
+        self._gripper.calibrate()
+
+        rospy.loginfo("ArmCommander({}): Waiting for action server {} don't forget to rosrun it...".format(self.name, action_server_name))
+        self.client.wait_for_server()
+
+    ######################################### CALLBACKS #########################################
+    def _cb_collision(self, msg):
+        if msg.collision_state:
+            with self._stop_lock:
+                self._stop_reason = 'collision'
+
+    def _cb_dig_io(self, msg):
+        if msg.state > 0:
+            with self._stop_lock:
+                self._stop_reason = 'cuff'
+    #############################################################################################
+
+    def endpoint_pose(self):
+        pose = Limb.endpoint_pose(self)
+        return [[pose['position'].x, pose['position'].y, pose['position'].z],
+                [pose['orientation'].x, pose['orientation'].y, pose['orientation'].z, pose['orientation'].w]]
+
+    def get_current_state(self):
+        """
+        Returns the current RobotState describing all joint states
+        :return: a RobotState corresponding to the current state read on /robot/joint_states
+        """
+        state = RobotState()
+        state.joint_state.name = self.joint_names()
+        state.joint_state.position = map(self.joint_angle, self.joint_names())
+        state.joint_state.velocity = map(self.joint_velocity, self.joint_names())
+        state.joint_state.effort = map(self.joint_effort, self.joint_names())
+        return state
+
+    def get_ik(self, eef_pose):
+        """
+        Return IK solutions of this arm's end effector according to the method declared in the constructor
+        :param eef_pose: a Pose in /base frame or a list [[x, y, z], [x, y, z, w]]
+        :return: a list of RobotState
+        TODO: accept also PoseStamped and Point (baxter_pykdl's IK accepts orientation=None)
+        TODO: accept a seed
+        """
+        if isinstance(eef_pose, Pose):
+            eef_pose = [[eef_pose.position.x, eef_pose.position.y, eef_pose.position.z],
+                        [eef_pose.orientation.x, eef_pose.orientation.y, eef_pose.orientation.z, eef_pose.orientation.w]]
+        elif not isinstance(eef_pose, list) or len(eef_pose)!=2:
+            raise TypeError("ArmCommander.get_ik() accepts only a list [[x, y, z], [x, y, z, w]] or a Pose in /base, got {}".format(str(type(eef_pose))))
+
+        return self._kinematics_services[self._kinematics_selected](eef_pose)
+
+
+    def _get_ik_pykdl(self, eef_pose):
+        resp = self._kinematics_pykdl.inverse_kinematics(eef_pose[0], eef_pose[1])
+        if resp is None:
+            return []
+        else:
+            rs = RobotState()
+            rs.is_diff = False
+            rs.joint_state.name = self.joint_names()
+            rs.joint_state.position = resp
+        return [rs]
+
+    def _get_ik_robot(self, eef_pose):
+        ik_req = SolvePositionIKRequest()
+
+        ps = PoseStamped()
+        ps.header.stamp = rospy.Time.now()
+        ps.header.frame_id = self._world
+        ps.pose.position.x = eef_pose[0][0]
+        ps.pose.position.y = eef_pose[0][1]
+        ps.pose.position.z = eef_pose[0][2]
+        ps.pose.orientation.x = eef_pose[1][0]
+        ps.pose.orientation.y = eef_pose[1][1]
+        ps.pose.orientation.z = eef_pose[1][2]
+        ps.pose.orientation.w = eef_pose[1][3]
+        ik_req.pose_stamp.append(ps)
+
+        rospy.wait_for_service(self._kinematics_robot_name, 5.0)
+        resp = self._kinematics_robot(ik_req)
+
+        return [RobotState(is_diff=False, joint_state=j) for j, v in zip(resp.joints, resp.isValid) if v]
+
+
+    def move_to_controlled(self, goal, display_only=False, timeout=15, kv_max=0.5, ka_max=0.5, test=None):
+        """
+        Move to a goal using interpolation in joint space with limitation of velocity and acceleration
+        :param goal: Pose, PoseStamped or RobotState
+        :param method: Interpolate or Path planning
+        :param timeout: In case of cuff interaction, indicates the max time to retry before giving up (negative = do not retry)
+        :param kv_max: max K for velocity
+        :param ka_max: max K for acceleration
+        :param test: pointer to a function that returns True if execution must stop now. /!\ Should be fast, it will be called at 100Hz!
+        :return: None
+        :raises: ValueError if IK has no solution
+        """
+        robot_states = self.get_ik(goal)
+        if len(robot_states) == 0:
+            raise ValueError('This goal is not reachable')
+        else:
+            rs = robot_states[0]  # We select the first solution arbitrarily
+        retry = True
+        t0 = rospy.get_time()
+        while retry and timeout > 0 and rospy.get_time()-t0 < timeout:
+            trajectory = self.interpolate_joint_space(rs, kv_max=kv_max, ka_max=ka_max)
+            if display_only:
+                self.display(trajectory)
+                break
+            else:
+                retry = not self.execute(trajectory, test=test)
+            if retry:
+                rospy.sleep(1)
+
+    def interpolate_joint_space(self,goal,nb_points=100, kv_max=0.5, ka_max=0.5, start=None):
+        """
+        Interpolate a trajectory from a start state (or current state) to a goal
+        :param goal: A RobotState to be used as the goal of the trajectory
+        :param nb_points: Number of joint-space points in the final trajectory
+        :param kv_max: max K for velocity
+        :param ka_max: max K for acceleration
+        :param start: A RobotState to be used as the start state, joint order must be the same as the goal
+        :return: The corresponding RobotTrajectory
+        """
+        def calculate_coeff(k,dist):
+            coeff = []
+            for i in range(len(dist)):
+                min_value = 1
+                for j in range(len(dist)):
+                    if i != j:
+                        if k[i]*dist[j] > 0.0001:
+                            min_value = min(min_value,(k[j]*dist[i])/(k[i]*dist[j]))
+                coeff.append(min_value)
+            return coeff
+
+        def calculate_max_speed(kv_des, ka,dist):
+            kv = []
+            for i in range(len(dist)):
+                if dist[i] <= (3.0/2)*(ka[i]/kv_des[i]):
+                    kv.append(np.sqrt((2.0/3)*dist[i]*ka[i]))
+                else:
+                    kv.append(kv_des[i])
+            return kv
+
+        def calculate_tau(kv, ka, lambda_i, mu_i):
+            tau = []
+            for i in range(len(kv)):
+                if mu_i[i]*ka[i] > 0.0001:
+                    tau.append((3.0/2)*(lambda_i[i]*kv[i])/(mu_i[i]*ka[i]))
+                else:
+                    tau.append(0.0)
+            return tau
+
+        def calculate_time(tau, lambda_i, kv, dist):
+            time = []
+            for i in range(len(tau)):
+                if kv[i] > 0.0001:
+                    time.append(tau[i]+dist[i]/(lambda_i[i]*kv[i]))
+                else:
+                    time.append(0.0)
+            return time
+
+        def calculate_joint_values(qi, D, tau, tf, nb_points):
+            if tf > 0.0001:
+                q_values = []
+                time = np.linspace(0, tf, nb_points)
+                for t in time:
+                    if t <= tau:
+                        q_values.append(qi+D*(1.0/(2*(tf-tau)))*(2*t**3/(tau**2)-t**4/(tau**3)))
+                    elif t <= tf-tau:
+                        q_values.append(qi+D*((2*t-tau)/(2*(tf-tau))))
+                    else:
+                        q_values.append(qi+D*(1-(tf-t)**3/(2*(tf-tau))*((2*tau-tf+t)/(tau**3))))
+            else:
+                q_values = np.ones(nb_points)*qi
+            return q_values
+
+
+        # create the joint trajectory message
+        rt = RobotTrajectory()
+
+        # collect the robot state
+        if start == None:
+            start = self.get_current_state()
+        joints = []
+        start_state = start.joint_state.position
+        goal_state = goal.joint_state.position
+
+        # calculate the max joint velocity
+        dist = np.array(goal_state) - np.array(start_state)
+        abs_dist = np.absolute(dist)
+        ka = np.ones(len(goal_state))*kv_max
+        kv = np.ones(len(goal_state))*ka_max
+        kv = calculate_max_speed(kv,ka,abs_dist)
+
+        # calculate the synchronisation coefficients
+        lambda_i = calculate_coeff(kv,abs_dist)
+        mu_i = calculate_coeff(ka,abs_dist)
+
+        # calculate the total time
+        tau = calculate_tau(kv,ka,lambda_i,mu_i)
+        tf = calculate_time(tau,lambda_i,kv,abs_dist)
+        dt = np.array(tf).max()*(1.0/nb_points)
+
+        if np.array(tf).max() > 0.0001:
+            # calculate the joint value
+            for j in range(len(goal_state)):
+                pose_lin = calculate_joint_values(start_state[j],dist[j],tau[j],tf[j],nb_points+1)
+                joints.append(pose_lin[1:])
+            for i in range(nb_points):
+                point = JointTrajectoryPoint()
+                for j in range(len(goal_state)):
+                    point.positions.append(joints[j][i])
+                # append the time from start of the position
+                point.time_from_start = rospy.Duration.from_sec((i+1)*dt)
+                # append the position to the message
+                rt.joint_trajectory.points.append(point)
+        else:
+            point = JointTrajectoryPoint()
+            point.positions = start_state
+            point.time_from_start = rospy.Duration.from_sec(0)
+        # put name of joints to be moved
+        rt.joint_trajectory.joint_names = self.joint_names()
+        return rt
+
+    def display(self, trajectory):
+        """
+        Display a joint-space trajectory in RVIz loaded with the Moveit plugin
+        :param trajectory: a RobotTrajectory message
+        """
+        if type(trajectory)!=RobotTrajectory:
+            raise NotImplementedError("ArmCommander.display() expected type RobotTrajectory, got {}".format(str(type(trajectory))))
+
+        # Publish the DisplayTrajectory (only for trajectory preview in RViz)
+        # includes a convert of float durations in rospy.Duration()
+        dt = DisplayTrajectory()
+        dt.trajectory.append(trajectory)
+        self._display_traj.publish(dt)
+
+    def execute(self, trajectory, test=None):
+        """
+        Safely executes a trajectory in joint space on the robot or simulate through RViz and its Moveit plugin (File moveit.rviz must be loaded into RViz)
+        This method is BLOCKING until the command succeeds or failure occurs i.e. the user interacted with the cuff or collision has been detected
+        Non-blocking needs should deal with the JointTrajectory action server
+
+        :param trajectory: either a RobotTrajectory or a JointTrajectory
+        :param test: pointer to a function that returns True if execution must stop now. /!\ Should be fast, it will be called at 100Hz!
+        :return: True if execution ended successfully, False otherwise
+        """
+
+        self.display(trajectory)
+        with self._stop_lock:
+            self._stop_reason = ''
+
+        if isinstance(trajectory, RobotTrajectory):
+            trajectory = trajectory.joint_trajectory
+        elif isinstance(trajectory, JointTrajectory):
+            trajectory = trajectory
+
+        ftg = FollowJointTrajectoryGoal()
+        ftg.trajectory = trajectory
+        self.client.send_goal(ftg)
+
+        # Blocking part, wait for the callback or a collision or a user manipulation to stop the trajectory
+        stop = False
+        while not stop and self.client.simple_state != SimpleGoalState.DONE:
+            if self._stop_reason!='' or callable(test) and test():
+                stop = True
+            else:
+                self._rate.sleep()
+        if stop and self.client.simple_state != SimpleGoalState.DONE:
+            self.client.cancel_goal()
+        # do not reset self._stop_reason here, it may be still in collision
+        return not stop
