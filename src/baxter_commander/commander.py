@@ -18,7 +18,7 @@ class ArmCommander(Limb):
     This class overloads Limb from the  Baxter Python SDK adding the support of trajectories via RobotState and RobotTrajectory messages
     Allows to control the entire arm either in joint space, or in task space, or with path planning, with simulation and a-priori collision detection
     """
-    def __init__(self, name, rate=100, kinematics='robot'):
+    def __init__(self, name, rate=100, kinematics='robot', default_kv_max=1., default_ka_max=0.5):
         """
         :param name:
         :param rate:
@@ -27,6 +27,8 @@ class ArmCommander(Limb):
         """
         Limb.__init__(self, name)
         self._world = 'base'
+        self.kv_max = default_kv_max
+        self.ka_max = default_ka_max
         self._gripper = Gripper(name)
         self._rate = rospy.Rate(rate)
 
@@ -135,7 +137,7 @@ class ArmCommander(Limb):
         return [RobotState(is_diff=False, joint_state=j) for j, v in zip(resp.joints, resp.isValid) if v]
 
 
-    def move_to_controlled(self, goal, display_only=False, timeout=15, kv_max=0.5, ka_max=0.5, test=None):
+    def move_to_controlled(self, goal, display_only=False, timeout=15, kv_max=-1, ka_max=-1, test=None):
         """
         Move to a goal using interpolation in joint space with limitation of velocity and acceleration
         :param goal: Pose, PoseStamped or RobotState
@@ -152,6 +154,7 @@ class ArmCommander(Limb):
             raise ValueError('This goal is not reachable')
         else:
             rs = robot_states[0]  # We select the first solution arbitrarily
+
         retry = True
         t0 = rospy.get_time()
         while retry and timeout > 0 and rospy.get_time()-t0 < timeout:
@@ -164,9 +167,10 @@ class ArmCommander(Limb):
             if retry:
                 rospy.sleep(1)
 
-    def interpolate_joint_space(self,goal,nb_points=100, kv_max=0.5, ka_max=0.5, start=None):
+    def interpolate_joint_space(self,goal,nb_points=100, kv_max=-1, ka_max=-1, start=None):
         """
-        Interpolate a trajectory from a start state (or current state) to a goal
+        Interpolate a trajectory from a start state (or current state) to a goal in joint space
+        If no kv and ka max are given the default are used
         :param goal: A RobotState to be used as the goal of the trajectory
         :param nb_points: Number of joint-space points in the final trajectory
         :param kv_max: max K for velocity
@@ -227,6 +231,10 @@ class ArmCommander(Limb):
                 q_values = np.ones(nb_points)*qi
             return q_values
 
+        if kv_max<0:
+            kv_max = self.kv_max
+        if ka_max<0:
+            ka_max = self.ka_max
 
         # create the joint trajectory message
         rt = RobotTrajectory()
