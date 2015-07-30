@@ -14,7 +14,6 @@ from control_msgs.msg import FollowJointTrajectoryAction, FollowJointTrajectoryG
 from sensor_msgs.msg import JointState
 from geometry_msgs.msg import Pose, PoseStamped
 from threading import Lock
-from tf import TransformListener
 from copy import deepcopy
 from transformations import pose_to_list, list_to_pose
 
@@ -36,7 +35,6 @@ class ArmCommander(Limb):
         self.ka_max = default_ka_max
         self._gripper = Gripper(name)
         self._rate = rospy.Rate(rate)
-        self._tf_listener = TransformListener()
 
         # Kinematics services: Selection among different services
         self._kinematics_selected = kinematics
@@ -160,7 +158,7 @@ class ArmCommander(Limb):
                                                              [seed.joint_state.position[seed.joint_state.name.index(joint)]
                                                               for joint in self.joint_names()] if seed else None)
             if resp is None:
-                return []
+                rs = None
             else:
                 rs = RobotState()
                 rs.is_diff = False
@@ -182,7 +180,10 @@ class ArmCommander(Limb):
         rospy.wait_for_service(self._i_kinematics_robot_name, 5.0)
         resp = self._i_kinematics_robot(ik_req)
 
-        return [RobotState(is_diff=False, joint_state=j) for j, v in zip(resp.joints, resp.isValid) if v]
+        solutions = []
+        for j, v in zip(resp.joints, resp.isValid):
+            solutions.append(RobotState(is_diff=False, joint_state=j) if v else None)
+        return solutions
 
     def _get_ik_ros(self, eef_poses, seed=None):
         rqst = GetPositionIKRequest()
@@ -210,7 +211,7 @@ class ArmCommander(Limb):
                 ik_answer.solution.joint_state.name = [joint for joint in ik_answer.solution.joint_state.name if joint in self.joint_names()]
                 solutions.append(ik_answer.solution)
             else:
-                return []
+                solutions.append(None)
         return solutions
 
     def _get_fk_robot(self, state):
