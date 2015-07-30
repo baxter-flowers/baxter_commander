@@ -14,6 +14,8 @@ from control_msgs.msg import FollowJointTrajectoryAction, FollowJointTrajectoryG
 from sensor_msgs.msg import JointState
 from geometry_msgs.msg import Pose, PoseStamped
 from threading import Lock
+from tf import TransformListener
+from copy import deepcopy
 from transformations import pose_to_list, list_to_pose
 
 class ArmCommander(Limb):
@@ -34,6 +36,7 @@ class ArmCommander(Limb):
         self.ka_max = default_ka_max
         self._gripper = Gripper(name)
         self._rate = rospy.Rate(rate)
+        self._tf_listener = TransformListener()
 
         # Kinematics services: Selection among different services
         self._kinematics_selected = kinematics
@@ -105,21 +108,27 @@ class ArmCommander(Limb):
         state.joint_state.effort = map(self.joint_effort, self.joint_names())
         return state
 
-    def get_ik(self, eef_pose):
+    def get_ik(self, eef_poses, seed=None):
         """
         Return IK solutions of this arm's end effector according to the method declared in the constructor
-        :param eef_pose: a Pose in /base frame or a list [[x, y, z], [x, y, z, w]]
-        :return: a list of RobotState
-        TODO: accept also PoseStamped and Point (baxter_pykdl's IK accepts orientation=None)
-        TODO: accept a seed
+        :param eef_poses: a PoseStamped or a list [[x, y, z], [x, y, z, w]] in world frame or a list of PoseStamped
+        :return: a list of RobotState for each pose in input
+        TODO: accept also a Point (baxter_pykdl's IK accepts orientation=None)
         """
-        if isinstance(eef_pose, Pose):
-            eef_pose = [[eef_pose.position.x, eef_pose.position.y, eef_pose.position.z],
-                        [eef_pose.orientation.x, eef_pose.orientation.y, eef_pose.orientation.z, eef_pose.orientation.w]]
-        elif not isinstance(eef_pose, list) or len(eef_pose)!=2:
-            raise TypeError("ArmCommander.get_ik() accepts only a list [[x, y, z], [x, y, z, w]] or a Pose in /base, got {}".format(str(type(eef_pose))))
+        if not isinstance(eef_poses, list) or isinstance(eef_poses[0], list) and not isinstance(eef_poses[0][0], list):
+            eef_poses = [eef_poses]
 
-        return self._kinematics_services[self._kinematics_selected]['ik'](eef_pose)
+        input = []
+        for eef_pose in eef_poses:
+            if isinstance(eef_pose, list):
+                input.append(list_to_pose(eef_pose, self._world))
+            elif isinstance(eef_pose, PoseStamped):
+                input.append(eef_pose)
+            else:
+                raise TypeError("ArmCommander.get_ik() accepts only a list of Postamped or [[x, y, z], [x, y, z, w]], got {}".format(str(type(eef_pose))))
+
+        output = self._kinematics_services[self._kinematics_selected]['ik'](input, seed)
+        return output if len(eef_poses)>1 else output[0]
 
     def get_fk(self, robot_state):
         """
@@ -140,60 +149,69 @@ class ArmCommander(Limb):
         except IndexError:
             return None
 
-    def _get_ik_pykdl(self, eef_pose):
-        resp = self._kinematics_pykdl.inverse_kinematics(eef_pose[0], eef_pose[1])
-        if resp is None:
-            return []
-        else:
-            rs = RobotState()
-            rs.is_diff = False
-            rs.joint_state.name = self.joint_names()
-            rs.joint_state.position = resp
-        return [rs]
+    def _get_ik_pykdl(self, eef_poses, seed=None):
+        solutions = []
+        for eef_pose in eef_poses:
+            if eef_pose.header.frame_id.strip('/') != self._world.strip('/'):
+                raise Exception("_get_ik_pykdl: Baxter PyKDL implementation does not accept frame_ids other than {}".format(self._world))
 
-    def _get_ik_robot(self, eef_pose):
+            pose = pose_to_list(eef_pose)
+            resp = self._kinematics_pykdl.inverse_kinematics(pose[0], pose[1],
+                                                             [seed.joint_state.position[seed.joint_state.name.index(joint)]
+                                                              for joint in self.joint_names()] if seed else None)
+            if resp is None:
+                return []
+            else:
+                rs = RobotState()
+                rs.is_diff = False
+                rs.joint_state.name = self.joint_names()
+                rs.joint_state.position = resp
+            solutions.append(rs)
+        return solutions
+
+    def _get_ik_robot(self, eef_poses, seed=None):
         ik_req = SolvePositionIKRequest()
 
-        ps = PoseStamped()
-        ps.header.stamp = rospy.Time.now()
-        ps.header.frame_id = self._world
-        ps.pose.position.x = eef_pose[0][0]
-        ps.pose.position.y = eef_pose[0][1]
-        ps.pose.position.z = eef_pose[0][2]
-        ps.pose.orientation.x = eef_pose[1][0]
-        ps.pose.orientation.y = eef_pose[1][1]
-        ps.pose.orientation.z = eef_pose[1][2]
-        ps.pose.orientation.w = eef_pose[1][3]
-        ik_req.pose_stamp.append(ps)
+        for eef_pose in eef_poses:
+            ik_req.pose_stamp.append(eef_pose)
+
+        if seed:
+            ik_req.seed_angles = [seed.joint_state.position[seed.joint_state.name.index(joint)] for joint in self.joint_names()]
+            ik_req.seed_mode = ik_req.SEED_AUTO
 
         rospy.wait_for_service(self._i_kinematics_robot_name, 5.0)
         resp = self._i_kinematics_robot(ik_req)
 
         return [RobotState(is_diff=False, joint_state=j) for j, v in zip(resp.joints, resp.isValid) if v]
 
-    def _get_ik_ros(self, eef_pose, seed=None):
+    def _get_ik_ros(self, eef_poses, seed=None):
         rqst = GetPositionIKRequest()
         rqst.ik_request.avoid_collisions = True
         rqst.ik_request.group_name = self.group_name()
-        rqst.ik_request.pose_stamped = list_to_pose(eef_pose, self._world)
-        if seed == None:
+        if seed is None:
             rqst.ik_request.robot_state = self.get_current_state()
         else:
             rqst.ik_request.robot_state = seed
         rospy.wait_for_service(self._i_kinematics_ros_name)
-        ik_answer = self._i_kinematics_ros.call(rqst)
 
-        if ik_answer.error_code.val==1:
-            # Apply a filter to return only joints of this group
-            try:
-                ik_answer.solution.joint_state.velocity = [value for id_joint, value in enumerate(ik_answer.solution.joint_state.velocity) if ik_answer.solution.joint_state.name[id_joint] in self.joint_names()]
-                ik_answer.solution.joint_state.effort = [value for id_joint, value in enumerate(ik_answer.solution.joint_state.effort) if ik_answer.solution.joint_state.name[id_joint] in self.joint_names()]
-            except IndexError:
-                pass
-            ik_answer.solution.joint_state.position = [value for id_joint, value in enumerate(ik_answer.solution.joint_state.position) if ik_answer.solution.joint_state.name[id_joint] in self.joint_names()]
-            ik_answer.solution.joint_state.name = [joint for joint in ik_answer.solution.joint_state.name if joint in self.joint_names()]
-            return [ik_answer.solution]
-        return []
+        solutions = []
+        for eef_pose in eef_poses:
+            rqst.ik_request.pose_stamped = eef_pose  # Do we really to do a separate call for each pose? _vector not used
+            ik_answer = self._i_kinematics_ros.call(rqst)
+
+            if ik_answer.error_code.val==1:
+                # Apply a filter to return only joints of this group
+                try:
+                    ik_answer.solution.joint_state.velocity = [value for id_joint, value in enumerate(ik_answer.solution.joint_state.velocity) if ik_answer.solution.joint_state.name[id_joint] in self.joint_names()]
+                    ik_answer.solution.joint_state.effort = [value for id_joint, value in enumerate(ik_answer.solution.joint_state.effort) if ik_answer.solution.joint_state.name[id_joint] in self.joint_names()]
+                except IndexError:
+                    pass
+                ik_answer.solution.joint_state.position = [value for id_joint, value in enumerate(ik_answer.solution.joint_state.position) if ik_answer.solution.joint_state.name[id_joint] in self.joint_names()]
+                ik_answer.solution.joint_state.name = [joint for joint in ik_answer.solution.joint_state.name if joint in self.joint_names()]
+                solutions.append(ik_answer.solution)
+            else:
+                return []
+        return solutions
 
     def _get_fk_robot(self, state):
         if state is not None:
