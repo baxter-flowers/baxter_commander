@@ -108,15 +108,22 @@ class ArmCommander(Limb):
         state.joint_state.effort = map(self.joint_effort, self.joint_names())
         return state
 
-    def get_ik(self, eef_poses, seed=None):
+    def get_ik(self, eef_poses, seeds=[]):
         """
         Return IK solutions of this arm's end effector according to the method declared in the constructor
         :param eef_poses: a PoseStamped or a list [[x, y, z], [x, y, z, w]] in world frame or a list of PoseStamped
-        :return: a list of RobotState for each pose in input
+        :param seeds: a single seed or a list of seeds of type RobotState for each input pose
+        :return: a list of RobotState for each input pose in input or a single RobotState
         TODO: accept also a Point (baxter_pykdl's IK accepts orientation=None)
+        Child methods wait for a *list* of pose(s) and a *list* of seed(s) for each pose
         """
         if not isinstance(eef_poses, list) or isinstance(eef_poses[0], list) and not isinstance(eef_poses[0][0], list):
             eef_poses = [eef_poses]
+
+        if not seeds:
+            seeds=[]
+        elif not isinstance(seeds, list):
+            seeds = [seeds]*len(eef_poses)
 
         input = []
         for eef_pose in eef_poses:
@@ -127,16 +134,17 @@ class ArmCommander(Limb):
             else:
                 raise TypeError("ArmCommander.get_ik() accepts only a list of Postamped or [[x, y, z], [x, y, z, w]], got {}".format(str(type(eef_pose))))
 
-        output = self._kinematics_services[self._kinematics_selected]['ik'](input, seed)
+        output = self._kinematics_services[self._kinematics_selected]['ik'](input, seeds)
         return output if len(eef_poses)>1 else output[0]
 
     def get_fk(self, robot_state, frame_id):
         """
         Return The FK solution oth this robot state according to the method declared in the constructor
+        robot_state = None will give the current endpoint pose in frame_id
         :param robot_state: a RobotState message
         :return: [[x, y, z], [x, y, z, w]]
         """
-        if isinstance(robot_state, RobotState):
+        if isinstance(robot_state, RobotState) or robot_state is None:
             return self._kinematics_services[self._kinematics_selected]['fk'](robot_state, frame_id)
         else:
             raise TypeError("ArmCommander.get_fk() accepts only a RobotState, got {}".format(str(type(robot_state))))
@@ -179,16 +187,16 @@ class ArmCommander(Limb):
         else:
             return None
 
-    def _get_ik_pykdl(self, eef_poses, seed=None):
+    def _get_ik_pykdl(self, eef_poses, seeds=[]):
         solutions = []
-        for eef_pose in eef_poses:
+        for pose_num, eef_pose in enumerate(eef_poses):
             if eef_pose.header.frame_id.strip('/') != self._world.strip('/'):
                 raise Exception("_get_ik_pykdl: Baxter PyKDL implementation does not accept frame_ids other than {}".format(self._world))
 
             pose = pose_to_list(eef_pose)
             resp = self._kinematics_pykdl.inverse_kinematics(pose[0], pose[1],
-                                                             [seed.joint_state.position[seed.joint_state.name.index(joint)]
-                                                              for joint in self.joint_names()] if seed else None)
+                                                             [seeds[pose_num].joint_state.position[seeds[pose_num].joint_state.name.index(joint)]
+                                                              for joint in self.joint_names()] if len(seeds)>0 else None)
             if resp is None:
                 rs = None
             else:
@@ -199,15 +207,15 @@ class ArmCommander(Limb):
             solutions.append(rs)
         return solutions
 
-    def _get_ik_robot(self, eef_poses, seed=None):
+    def _get_ik_robot(self, eef_poses, seeds=[]):
         ik_req = SolvePositionIKRequest()
 
         for eef_pose in eef_poses:
             ik_req.pose_stamp.append(eef_pose)
 
-        if seed:
-            ik_req.seed_angles = [seed.joint_state.position[seed.joint_state.name.index(joint)] for joint in self.joint_names()]
-            ik_req.seed_mode = ik_req.SEED_AUTO
+        ik_req.seed_mode = ik_req.SEED_USER if len(seeds) > 0 else ik_req.SEED_CURRENT
+        for seed in seeds:
+            ik_req.seed_angles.append(seed.joint_state)
 
         rospy.wait_for_service(self._i_kinematics_robot_name, 5.0)
         resp = self._i_kinematics_robot(ik_req)
@@ -217,20 +225,19 @@ class ArmCommander(Limb):
             solutions.append(RobotState(is_diff=False, joint_state=j) if v else None)
         return solutions
 
-    def _get_ik_ros(self, eef_poses, seed=None):
+    def _get_ik_ros(self, eef_poses, seeds=[]):
         rqst = GetPositionIKRequest()
         rqst.ik_request.avoid_collisions = True
         rqst.ik_request.group_name = self.group_name()
-        if seed is None:
-            rqst.ik_request.robot_state = self.get_current_state()
-        else:
-            rqst.ik_request.robot_state = seed
         rospy.wait_for_service(self._i_kinematics_ros_name)
 
         solutions = []
-        for eef_pose in eef_poses:
+        for pose_num, eef_pose in enumerate(eef_poses):
             rqst.ik_request.pose_stamped = eef_pose  # Do we really to do a separate call for each pose? _vector not used
             ik_answer = self._i_kinematics_ros.call(rqst)
+
+            if len(seeds) > 0:
+                rqst.ik_request.robot_state = seeds[pose_num]
 
             if ik_answer.error_code.val==1:
                 # Apply a filter to return only joints of this group
