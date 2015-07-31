@@ -23,7 +23,7 @@ class ArmCommander(Limb):
     This class overloads Limb from the  Baxter Python SDK adding the support of trajectories via RobotState and RobotTrajectory messages
     Allows to control the entire arm either in joint space, or in task space, or with path planning, with simulation and a-priori collision detection
     """
-    def __init__(self, name, rate=100, kinematics='robot', default_kv_max=1., default_ka_max=0.5):
+    def __init__(self, name, rate=100, kinematics='ros', default_kv_max=1., default_ka_max=0.5):
         """
         :param name:
         :param rate:
@@ -285,6 +285,54 @@ class ArmCommander(Limb):
                 retry = not self.execute(trajectory, test=test)
             if retry:
                 rospy.sleep(1)
+
+    ######################## OPERATIONS ON TRAJECTORIES
+
+    def generate_cartesian_path(self, path, frame_id , time, start_state=None, n_points=50, max_speed=np.pi/4):
+        """
+        Generate a cartesian path of the end effector of "descent" meters where path = [x, y, z] wrt frame_id
+        move_group.compute_cartesian_path does not allow to start from anything else but the current state, use this instead
+        :param start_state: The start state to compute the trajectory from
+        :param path: [x, y, z] The vector to follow in straight line
+        :param n_points: The number of way points (high number will be longer to compute)
+        :param time: time of the overall motion
+        :param max_speed: Maximum speed in rad/sec for each joint
+        :return: a RobotTrajectory from the current pose and applying the given cartesian path to the end effector
+        """
+        pose_eef_approach = self.get_fk(frame_id, start_state)
+        waypoints = []
+        for num in range(n_points):
+            p = deepcopy(pose_eef_approach)
+            p.pose.position.x += float(path[0]*num)/n_points
+            p.pose.position.y += float(path[1]*num)/n_points
+            p.pose.position.z += float(path[2]*num)/n_points
+            waypoints.append(p)
+        path = self.get_ik(waypoints, start_state if start_state else self.get_current_state()) # Provide the state here avoid the 1st point to jump
+
+        trajectory = RobotTrajectory()
+        trajectory.joint_trajectory.joint_names = path[0].joint_state.name
+
+        # "Jumps" detection: points with speed > max_speed are eliminated
+        old_joint_state = None  # Will store the joint_state of the previous point...
+        old_time_sec = float('inf')        # ...to compute the speed between 2 points in joint space
+        jump_occurs = False
+
+        for num, state in enumerate(path):
+            time_sec = float(num*time)/len(path)
+            if state:
+                if old_time_sec < time_sec:
+                    distance = (np.abs(old_joint_state-state.joint_state.position)%(np.pi))/(time_sec-old_time_sec)
+                    jump_occurs = np.any(distance>max_speed)
+                if not jump_occurs:
+                    jtp = JointTrajectoryPoint()
+                    jtp.positions = state.joint_state.position
+                    jtp.time_from_start = rospy.Duration(time_sec)
+                    trajectory.joint_trajectory.points.append(jtp)
+                    old_joint_state = np.array(state.joint_state.position)
+                    old_time_sec = time_sec
+
+        successrate = float(len(trajectory.joint_trajectory.points))/n_points
+        return trajectory, successrate
 
     def interpolate_joint_space(self,goal,nb_points=100, kv_max=-1, ka_max=-1, start=None):
         """
