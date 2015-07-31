@@ -137,7 +137,7 @@ class ArmCommander(Limb):
         output = self._kinematics_services[self._kinematics_selected]['ik'](input, seeds)
         return output if len(eef_poses)>1 else output[0]
 
-    def get_fk(self, robot_state, frame_id):
+    def get_fk(self, frame_id, robot_state=None):
         """
         Return The FK solution oth this robot state according to the method declared in the constructor
         robot_state = None will give the current endpoint pose in frame_id
@@ -145,12 +145,13 @@ class ArmCommander(Limb):
         :return: [[x, y, z], [x, y, z, w]]
         """
         if isinstance(robot_state, RobotState) or robot_state is None:
-            return self._kinematics_services[self._kinematics_selected]['fk'](robot_state, frame_id)
+            return self._kinematics_services[self._kinematics_selected]['fk'](frame_id, robot_state)
         else:
             raise TypeError("ArmCommander.get_fk() accepts only a RobotState, got {}".format(str(type(robot_state))))
 
-    def _get_fk_pykdl(self, state, frame_id):
-        state.joint_state.name
+    def _get_fk_pykdl(self, frame_id, state=None):
+        if state is None:
+            state = self.get_current_state()
         fk = self._kinematics_pykdl.forward_position_kinematics(dict(zip(state.joint_state.name, state.joint_state.position)))
         ps = PoseStamped()
         ps.header.frame_id = self._world
@@ -163,13 +164,13 @@ class ArmCommander(Limb):
         ps.pose.orientation.w = fk[6]
         return self._tf_listener.transformPose(frame_id, ps)
 
-    def _get_fk_robot(self, state, frame_id = None):
+    def _get_fk_robot(self, frame_id = None, state=None):
         if state is not None:
             raise NotImplementedError("_get_fk_robot has no FK service provided by the robot except for its current endpoint pose")
         ps = list_to_pose(self.endpoint_pose(), self._world)
         return self._tf_listener.transformPose(frame_id, ps)
 
-    def _get_fk_ros(self, state, frame_id = None):
+    def _get_fk_ros(self, frame_id = None, state=None):
         rqst = GetPositionFKRequest()
         rqst.header.frame_id = self._world if frame_id is None else frame_id
         rqst.fk_link_names = [self.endpoint_name()]
@@ -177,6 +178,8 @@ class ArmCommander(Limb):
             rqst.robot_state = state
         elif isinstance(state, JointState):
             rqst.robot_state.joint_state = state
+        elif state is None:
+            rqst.robot_state = self.get_current_state()
         else:
             raise AttributeError("Provided state is an invalid type")
         rospy.wait_for_service(self._f_kinematics_ros_name)
