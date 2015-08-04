@@ -15,7 +15,7 @@ from sensor_msgs.msg import JointState
 from geometry_msgs.msg import Pose, PoseStamped
 from threading import Lock
 from copy import deepcopy
-from transformations import pose_to_list, list_to_pose
+from transformations import pose_to_list, list_to_pose, distance
 from tf import TransformListener
 
 class ArmCommander(Limb):
@@ -194,7 +194,7 @@ class ArmCommander(Limb):
         solutions = []
         for pose_num, eef_pose in enumerate(eef_poses):
             if eef_pose.header.frame_id.strip('/') != self._world.strip('/'):
-                raise Exception("_get_ik_pykdl: Baxter PyKDL implementation does not accept frame_ids other than {}".format(self._world))
+                raise NotImplementedError("_get_ik_pykdl: Baxter PyKDL implementation does not accept frame_ids other than {}".format(self._world))
 
             pose = pose_to_list(eef_pose)
             resp = self._kinematics_pykdl.inverse_kinematics(pose[0], pose[1],
@@ -268,16 +268,15 @@ class ArmCommander(Limb):
         :return: None
         :raises: ValueError if IK has no solution
         """
-        robot_states = self.get_ik(goal)
-        if len(robot_states) == 0:
+        if not isinstance(goal, RobotState):
+            goal = self.get_ik(goal)
+        if goal is None:
             raise ValueError('This goal is not reachable')
-        else:
-            rs = robot_states[0]  # We select the first solution arbitrarily
 
         retry = True
         t0 = rospy.get_time()
         while retry and timeout > 0 and rospy.get_time()-t0 < timeout:
-            trajectory = self.interpolate_joint_space(rs, kv_max=kv_max, ka_max=ka_max)
+            trajectory = self.interpolate_joint_space(goal, kv_max=kv_max, ka_max=ka_max)
             if display_only:
                 self.display(trajectory)
                 break
@@ -333,6 +332,14 @@ class ArmCommander(Limb):
 
         successrate = float(len(trajectory.joint_trajectory.points))/n_points
         return trajectory, successrate
+
+    def generate_reverse_trajectory(self, trajectory):
+        reversed = deepcopy(trajectory)
+        reversed.joint_trajectory.points.reverse()
+        n_points = len(trajectory.joint_trajectory.points)
+        for p in range(n_points):
+            reversed.joint_trajectory.points[p].time_from_start = trajectory.joint_trajectory.points[p].time_from_start
+        return reversed
 
     def interpolate_joint_space(self,goal,nb_points=100, kv_max=-1, ka_max=-1, start=None):
         """
@@ -398,9 +405,9 @@ class ArmCommander(Limb):
                 q_values = np.ones(nb_points)*qi
             return q_values
 
-        if kv_max<0:
+        if isinstance(kv_max, float) or isinstance(kv_max, int) and kv_max<0:
             kv_max = self.kv_max
-        if ka_max<0:
+        if isinstance(kv_max, float) or isinstance(kv_max, int) and ka_max<0:
             ka_max = self.ka_max
 
         # create the joint trajectory message
@@ -499,3 +506,21 @@ class ArmCommander(Limb):
             self.client.cancel_goal()
         # do not reset self._stop_reason here, it may be still in collision
         return not stop
+
+    def close(self):
+        self._gripper.close(True)
+
+    def open(self):
+        self._gripper.open(True)
+
+    def extract_perturbation(self, window=50, sleep_step=0.1):
+        """
+        Sleeps a sleep step and extracts the difference between command state and current state
+        :return: The cartesian distance in meters between command and current
+        """
+        diffs = []
+        for i in range(window):
+            diffs.append(distance(self._tf_listener.lookupTransform(self._world, self.name+'_gripper', rospy.Time(0)),
+                                  self._tf_listener.lookupTransform('/reference/'+self._world, '/reference/'+self.name+'_gripper', rospy.Time(0))))
+            rospy.sleep(sleep_step/window)
+        return np.max(diffs)
