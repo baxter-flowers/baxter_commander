@@ -1,0 +1,10 @@
+<launch>
+  <node name="joint_trajectory_action_server" pkg="baxter_interface" type="joint_trajectory_action_server.py"/>
+
+  <arg name="verbose" default="true"/>
+  <arg name="rviz_config" default="$(find baxter_commander)/config/commander.rviz" />
+    
+  <node if="$(arg verbose)" name="$(anon rviz)" pkg="rviz" type="rviz" respawn="false" args=" -d $(arg rviz_config)" output="screen"/>
+  <node unless="$(arg verbose)" name="$(anon rviz)" pkg="rviz" type="rviz" respawn="false" args=" id $(arg rviz_config)" output="log"/>
+
+</launch>
