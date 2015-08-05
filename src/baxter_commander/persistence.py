@@ -1,7 +1,9 @@
-from moveit_msgs.msg import RobotTrajectory
+from moveit_msgs.msg import RobotTrajectory, RobotState
 from trajectory_msgs.msg import JointTrajectoryPoint
 from sensor_msgs.msg import JointState
 from rospy import Duration
+
+__all__ = ['trajtodict', 'dicttotraj', 'statetodict', 'dicttostate']
 
 def trajtodict( traj):
     if isinstance(traj, RobotTrajectory):
@@ -24,6 +26,8 @@ def dicttotraj(dic):
     return rt
 
 def statetodict(state):
+    if isinstance(state, RobotState):
+        state = state.joint_state
     if isinstance(state, JointState):
         return {"name": state.name, "position": state.position}
     else:
