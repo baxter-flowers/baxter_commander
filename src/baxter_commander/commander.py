@@ -25,14 +25,15 @@ __all__ = ['ArmCommander']
 class ArmCommander(Limb):
     """
     This class overloads Limb from the  Baxter Python SDK adding the support of trajectories via RobotState and RobotTrajectory messages
-    Allows to control the entire arm either in joint space, or in task space, or with path planning, with simulation and a-priori collision detection
+    Allows to control the entire arm either in joint space, or in task space, or (later) with path planning, all with simulation
     """
     def __init__(self, name, rate=100, kinematics='ros', default_kv_max=1., default_ka_max=0.5):
         """
-        :param name:
-        :param rate:
+        :param name: 'left' or 'right'
+        :param rate: Rate of the control loop for execution of motions
         :param kinematics: Kinematics solver, "robot", "kdl" or "ros"
-        :return:
+        :param default_kv_max: Default K maximum for velocity
+        :param default_ka_max: Default K maximum for acceleration
         """
         Limb.__init__(self, name)
         self._world = 'base'
@@ -75,7 +76,7 @@ class ArmCommander(Limb):
         self._display_traj = rospy.Publisher("/move_group/display_planned_path", DisplayTrajectory, queue_size=1)
         self._gripper.calibrate()
 
-        rospy.loginfo("ArmCommander({}): Waiting for action server {} don't forget to rosrun it...".format(self.name, action_server_name))
+        rospy.loginfo("ArmCommander({}): Waiting for action server {}...".format(self.name, action_server_name))
         self.client.wait_for_server()
 
     ######################################### CALLBACKS #########################################
@@ -91,6 +92,10 @@ class ArmCommander(Limb):
     #############################################################################################
 
     def endpoint_pose(self):
+        """
+        Returns the pose of the end effector
+        :return: [[x, y, z], [x, y, z, w]]
+        """
         pose = Limb.endpoint_pose(self)
         return [[pose['position'].x, pose['position'].y, pose['position'].z],
                 [pose['orientation'].x, pose['orientation'].y, pose['orientation'].z, pose['orientation'].w]]
@@ -339,6 +344,11 @@ class ArmCommander(Limb):
         return trajectory, successrate
 
     def generate_reverse_trajectory(self, trajectory):
+        """
+        Reverse the trajectory such as: state S -> trajectory T -> state B -> reverse_trajectory(T) -> state A
+        :param trajectory: a RobotTrajectory
+        :return: a RobotTrajectory
+        """
         reversed = deepcopy(trajectory)
         reversed.joint_trajectory.points.reverse()
         n_points = len(trajectory.joint_trajectory.points)
@@ -352,8 +362,8 @@ class ArmCommander(Limb):
         If no kv and ka max are given the default are used
         :param goal: A RobotState to be used as the goal of the trajectory
         :param nb_points: Number of joint-space points in the final trajectory
-        :param kv_max: max K for velocity
-        :param ka_max: max K for acceleration
+        :param kv_max: max K for velocity, can be a vector or a single value
+        :param ka_max: max K for acceleration, can be a vector or a single value
         :param start: A RobotState to be used as the start state, joint order must be the same as the goal
         :return: The corresponding RobotTrajectory
         """
@@ -481,7 +491,6 @@ class ArmCommander(Limb):
         Safely executes a trajectory in joint space on the robot or simulate through RViz and its Moveit plugin (File moveit.rviz must be loaded into RViz)
         This method is BLOCKING until the command succeeds or failure occurs i.e. the user interacted with the cuff or collision has been detected
         Non-blocking needs should deal with the JointTrajectory action server
-
         :param trajectory: either a RobotTrajectory or a JointTrajectory
         :param test: pointer to a function that returns True if execution must stop now. /!\ Should be fast, it will be called at 100Hz!
         :return: True if execution ended successfully, False otherwise
@@ -509,9 +518,15 @@ class ArmCommander(Limb):
         return not stop
 
     def close(self):
+        """
+        Open the gripper
+        """
         self._gripper.close(True)
 
     def open(self):
+        """
+        Close the gripper
+        """
         self._gripper.open(True)
 
     def extract_perturbation(self, window=50, sleep_step=0.1):
@@ -528,6 +543,10 @@ class ArmCommander(Limb):
 
     ####################################### Joint Recorder of this arm
     def recorder_start(self, rate_hz=50.):
+        """
+        State recording the joint states of this arm at the specified frame rate
+        :param rate_hz: a frame rate, inferior to rostopic hz /robot/state
+        """
         return self._joint_recorder.recorder_start(rate_hz)
 
     def recorder_stop(self, include_position=True, include_velocity=False, include_effort=False):
