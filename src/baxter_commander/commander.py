@@ -18,6 +18,10 @@ from copy import deepcopy
 from transformations import pose_to_list, list_to_pose, distance
 from tf import TransformListener
 
+from . joint_recorder import JointRecorder
+
+__all__ = ['ArmCommander']
+
 class ArmCommander(Limb):
     """
     This class overloads Limb from the  Baxter Python SDK adding the support of trajectories via RobotState and RobotTrajectory messages
@@ -37,6 +41,7 @@ class ArmCommander(Limb):
         self._gripper = Gripper(name)
         self._rate = rospy.Rate(rate)
         self._tf_listener = TransformListener()
+        self._joint_recorder = JointRecorder(self.joint_names())
 
         # Kinematics services: Selection among different services
         self._kinematics_selected = kinematics
@@ -481,20 +486,16 @@ class ArmCommander(Limb):
         :param test: pointer to a function that returns True if execution must stop now. /!\ Should be fast, it will be called at 100Hz!
         :return: True if execution ended successfully, False otherwise
         """
-
         self.display(trajectory)
         with self._stop_lock:
             self._stop_reason = ''
-
         if isinstance(trajectory, RobotTrajectory):
             trajectory = trajectory.joint_trajectory
         elif isinstance(trajectory, JointTrajectory):
             trajectory = trajectory
-
         ftg = FollowJointTrajectoryGoal()
         ftg.trajectory = trajectory
         self.client.send_goal(ftg)
-
         # Blocking part, wait for the callback or a collision or a user manipulation to stop the trajectory
         stop = False
         while not stop and self.client.simple_state != SimpleGoalState.DONE:
@@ -524,3 +525,17 @@ class ArmCommander(Limb):
                                   self._tf_listener.lookupTransform('/reference/'+self._world, '/reference/'+self.name+'_gripper', rospy.Time(0))))
             rospy.sleep(sleep_step/window)
         return np.max(diffs)
+
+    ####################################### Joint Recorder of this arm
+    def recorder_start(self, rate_hz=50.):
+        return self._joint_recorder.recorder_start(rate_hz)
+
+    def recorder_stop(self, include_position=True, include_velocity=False, include_effort=False):
+        """
+        Stop the joint recording and returns the recorded trajectory of joints declared in the constructor
+        :param include_position: if True, the joint positions will be included in the returned trajectory
+        :param include_velocity:  if True, the joint velocities will be included in the returned trajectory
+        :param include_effort:  if True, the joint efforts will be included in the returned trajectory
+        :return: the recorded JointTrajectory
+        """
+        return self._joint_recorder.recorder_stop(include_position, include_velocity, include_effort)
