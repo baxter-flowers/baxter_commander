@@ -34,7 +34,7 @@ def statetodict(state):
         raise TypeError("[statetodict] Waiting for a JointState input only")
 
 def dicttostate(dic):
-    js = JointState()
-    js.name = dic["name"]
-    js.position = dic["position"]
-    return js
+    rs = RobotState()
+    rs.joint_state.name = dic["name"]
+    rs.joint_state.position = dic["position"]
+    return rs
