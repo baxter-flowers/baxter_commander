@@ -147,14 +147,18 @@ def distance(p1, p2):
     :param p2: point 2 (list or PoseStamped)
     :return: cartesian distance (float)
     """
-    if type(p1)==PoseStamped:
+    if isinstance(p1, PoseStamped):
         x = p1.pose.position.x - p2.pose.position.x
         y = p1.pose.position.y - p2.pose.position.y
         z = p1.pose.position.z - p2.pose.position.z
-    else:
+    elif isinstance(p1[0], list) or isinstance(p1[0], tuple):
         x = p1[0][0] - p2[0][0]
         y = p1[0][1] - p2[0][1]
         z = p1[0][2] - p2[0][2]
+    else:
+        x = p1[0] - p2[0]
+        y = p1[1] - p2[1]
+        z = p1[2] - p2[2]
     return sqrt(x*x + y*y + z*z)
 
 def distance_quat(p1, p2):
