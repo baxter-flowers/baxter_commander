@@ -3,7 +3,7 @@
 import rospy
 from geometry_msgs.msg import *
 from std_msgs.msg import *
-from numpy import ndarray, dot, sqrt, array, arccos
+from numpy import ndarray, dot, sqrt, array, arccos, inner
 import tf
 
 __all__ = ['pose_to_list', 'quat_to_list', 'list_to_quat', 'list_to_pose', 'list_to_pose', 'quat_rotate',
@@ -175,7 +175,7 @@ def distance_quat(p1, p2):
     if isinstance(p1, list) or isinstance(p1, tuple):
         p1 = p1[1]
         p2 = p2[1]
-    dotp = dot(array(p1), array(p2))
+    dotp = inner(array(p1), array(p2))
     return arccos(2*dotp*dotp-1)
 
 def norm(point):
