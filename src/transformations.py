@@ -14,6 +14,13 @@ This module extends a bit the tf module.
 We should take some time one day to clean this and merge it into the official tf.transformations module
 """
 
+def _is_indexable(var):
+    try:
+        var[0]
+    except IndexError:
+        return False
+    return True
+
 def pose_to_list(pose):
     """
     Convert a Pose or PoseStamped in Python list ((position), (quaternion))
@@ -119,7 +126,7 @@ def scale_transform(t, scale):
     if isinstance(scale, float) or isinstance(scale, int):
         scale = [scale, scale, scale]
 
-    if isinstance(t[0], list) or isinstance(t[0], tuple):
+    if _is_indexable(t[0]):
         return [[t[0][0]*scale[0], t[0][1]*scale[1], t[0][2]*scale[2]], t[1]]
     else:
         return [t[0]*scale[0], t[1]*scale[1], t[2]*scale[2]]
@@ -151,7 +158,7 @@ def distance(p1, p2):
         x = p1.pose.position.x - p2.pose.position.x
         y = p1.pose.position.y - p2.pose.position.y
         z = p1.pose.position.z - p2.pose.position.z
-    elif isinstance(p1[0], list) or isinstance(p1[0], tuple):
+    elif _is_indexable(p1[0]):
         x = p1[0][0] - p2[0][0]
         y = p1[0][1] - p2[0][1]
         z = p1[0][2] - p2[0][2]
@@ -172,7 +179,7 @@ def distance_quat(p1, p2):
         p1 = pose_to_list(p1)
     if isinstance(p2, PoseStamped):
         p2 = pose_to_list(p2)
-    if isinstance(p1, list) or isinstance(p1, tuple):
+    if _is_indexable(p1):
         p1 = p1[1]
         p2 = p2[1]
     dotp = inner(array(p1), array(p2))
