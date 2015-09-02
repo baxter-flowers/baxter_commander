@@ -294,6 +294,7 @@ class ArmCommander(Limb):
                 retry = not self.execute(trajectory, test=test)
             if retry:
                 rospy.sleep(1)
+        return not retry
 
     ######################## OPERATIONS ON TRAJECTORIES
 
