@@ -283,18 +283,27 @@ class ArmCommander(Limb):
         if goal is None:
             raise ValueError('This goal is not reachable')
 
-        retry = True
-        t0 = rospy.get_time()
-        while retry and timeout > 0 and rospy.get_time()-t0 < timeout:
+        if timeout < 0:
             trajectory = self.interpolate_joint_space(goal, kv_max=kv_max, ka_max=ka_max)
             if display_only:
                 self.display(trajectory)
-                break
+                return True
             else:
-                retry = not self.execute(trajectory, test=test)
-            if retry:
-                rospy.sleep(1)
-        return not display_only and not retry
+                return self.execute(trajectory, test=test)
+
+        else:
+            retry = True
+            t0 = rospy.get_time()
+            while retry and timeout >= 0 and rospy.get_time()-t0 < timeout:
+                trajectory = self.interpolate_joint_space(goal, kv_max=kv_max, ka_max=ka_max)
+                if display_only:
+                    self.display(trajectory)
+                    break
+                else:
+                    retry = not self.execute(trajectory, test=test)
+                if retry:
+                    rospy.sleep(1)
+            return not display_only and not retry
 
     ######################## OPERATIONS ON TRAJECTORIES
 
@@ -507,16 +516,18 @@ class ArmCommander(Limb):
         ftg.trajectory = trajectory
         self.client.send_goal(ftg)
         # Blocking part, wait for the callback or a collision or a user manipulation to stop the trajectory
-        stop = False
-        while not stop and self.client.simple_state != SimpleGoalState.DONE:
-            if self._stop_reason!='' or callable(test) and test():
-                stop = True
-            else:
-                self._rate.sleep()
-        if stop and self.client.simple_state != SimpleGoalState.DONE:
-            self.client.cancel_goal()
-            return False
-        # do not reset self._stop_reason here, it may be still in collision
+
+        while self.client.simple_state != SimpleGoalState.DONE:
+
+            if callable(test) and test():
+                return True
+
+            if self._stop_reason!='':
+                self.client.cancel_goal()
+                return False
+
+            self._rate.sleep()
+
         return True
 
     def close(self):
