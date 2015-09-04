@@ -294,7 +294,7 @@ class ArmCommander(Limb):
                 retry = not self.execute(trajectory, test=test)
             if retry:
                 rospy.sleep(1)
-        return not retry
+        return not display_only and not retry
 
     ######################## OPERATIONS ON TRAJECTORIES
 
@@ -515,8 +515,9 @@ class ArmCommander(Limb):
                 self._rate.sleep()
         if stop and self.client.simple_state != SimpleGoalState.DONE:
             self.client.cancel_goal()
+            return False
         # do not reset self._stop_reason here, it may be still in collision
-        return not stop
+        return True
 
     def close(self):
         """
