@@ -448,8 +448,14 @@ class ArmCommander(Limb):
         # calculate the max joint velocity
         dist = np.array(goal_state) - np.array(start_state)
         abs_dist = np.absolute(dist)
-        ka = np.ones(len(goal_state))*map(lambda name: ka_max[name], goal.joint_state.name)
-        kv = np.ones(len(goal_state))*map(lambda name: kv_max[name], goal.joint_state.name)
+        if isinstance(ka_max, dict):
+            ka = np.ones(len(goal_state))*map(lambda name: ka_max[name], goal.joint_state.name)
+        else:
+            ka = np.ones(len(goal_state))*ka_max
+        if isinstance(kv_max, dict):
+            kv = np.ones(len(goal_state))*map(lambda name: kv_max[name], goal.joint_state.name)
+        else:
+            kv = np.ones(len(goal_state))*kv_max
         kv = calculate_max_speed(kv,ka,abs_dist)
 
         # calculate the synchronisation coefficients
