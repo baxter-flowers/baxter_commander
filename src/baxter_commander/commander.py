@@ -284,7 +284,7 @@ class ArmCommander(Limb):
             raise ValueError('This goal is not reachable')
 
         if timeout < 0:
-            trajectory = self.interpolate_joint_space(goal, kv_max=kv_max, ka_max=ka_max)
+            trajectory = self.trapezoidal_speed_trajectory(goal, kv_max=kv_max, ka_max=ka_max)
             if display_only:
                 self.display(trajectory)
                 return True
@@ -295,7 +295,7 @@ class ArmCommander(Limb):
             retry = True
             t0 = rospy.get_time()
             while retry and timeout >= 0 and rospy.get_time()-t0 < timeout:
-                trajectory = self.interpolate_joint_space(goal, kv_max=kv_max, ka_max=ka_max)
+                trajectory = self.trapezoidal_speed_trajectory(goal, kv_max=kv_max, ka_max=ka_max)
                 if display_only:
                     self.display(trajectory)
                     break
@@ -366,9 +366,9 @@ class ArmCommander(Limb):
             reversed.joint_trajectory.points[p].time_from_start = trajectory.joint_trajectory.points[p].time_from_start
         return reversed
 
-    def interpolate_joint_space(self,goal,nb_points=100, kv_max=None, ka_max=None, start=None):
+    def trapezoidal_speed_trajectory(self, goal, nb_points=100, kv_max=None, ka_max=None, start=None):
         """
-        Interpolate a trajectory from a start state (or current state) to a goal in joint space
+        Calculate a trajectory from a start state (or current state) to a goal in joint space using a trapezoidal velocity model
         If no kv and ka max are given the default are used
         :param goal: A RobotState to be used as the goal of the trajectory
         :param nb_points: Number of joint-space points in the final trajectory
@@ -377,7 +377,7 @@ class ArmCommander(Limb):
         :param start: A RobotState to be used as the start state, joint order must be the same as the goal
         :return: The corresponding RobotTrajectory
         """
-        def calculate_coeff(k,dist):
+        def calculate_coeff(k ,dist):
             coeff = []
             for i in range(len(dist)):
                 min_value = 1
@@ -480,6 +480,41 @@ class ArmCommander(Limb):
             point.time_from_start = rospy.Duration.from_sec(0)
         # put name of joints to be moved
         rt.joint_trajectory.joint_names = self.joint_names()
+        return rt
+
+    def interpolate_joint_space(self, goal, total_time, nb_points, start=None):
+        """
+        Interpolate a trajectory from a start state (or current state) to a goal in joint space
+        :param goal: A RobotState to be used as the goal of the trajectory
+        param total_time: The time to execute the trajectory
+        :param nb_points: Number of joint-space points in the final trajectory
+        :param start: A RobotState to be used as the start state, joint order must be the same as the goal
+        :return: The corresponding RobotTrajectory
+        """
+        dt = total_time*(1.0/nb_points)
+        # create the joint trajectory message
+        traj_msg = JointTrajectory()
+        rt = RobotTrajectory()
+        if start == None:
+            start = self.get_current_state()
+        joints = []
+        start_state = start.joint_state.position
+        goal_state = goal.joint_state.position
+        for j in range(len(goal_state)):
+            pose_lin = np.linspace(start_state[j],goal_state[j],nb_points+1)
+            joints.append(pose_lin[1:].tolist())
+        for i in range(nb_points):
+            point = JointTrajectoryPoint()
+            for j in range(len(goal_state)):
+                point.positions.append(joints[j][i])
+            # append the time from start of the position
+            point.time_from_start = rospy.Duration.from_sec((i+1)*dt)
+            # append the position to the message
+            traj_msg.points.append(point)
+        # put name of joints to be moved
+        traj_msg.joint_names = self.group.get_active_joints()
+        # send the message
+        rt.joint_trajectory = traj_msg
         return rt
 
     def display(self, trajectory):
