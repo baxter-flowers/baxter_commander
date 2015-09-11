@@ -15,7 +15,7 @@ from sensor_msgs.msg import JointState
 from geometry_msgs.msg import Pose, PoseStamped
 from threading import Lock
 from copy import deepcopy
-from transformations import pose_to_list, list_to_pose, distance
+from transformations import pose_to_list, list_to_pose, distance, _is_indexable as is_indexable
 from tf import TransformListener
 
 from . joint_recorder import JointRecorder
@@ -266,14 +266,14 @@ class ArmCommander(Limb):
                 solutions.append(None)
         return solutions
 
-    def move_to_controlled(self, goal, display_only=False, timeout=15, kv_max=-1, ka_max=-1, test=None):
+    def move_to_controlled(self, goal, display_only=False, timeout=15, kv_max=None, ka_max=None, test=None):
         """
         Move to a goal using interpolation in joint space with limitation of velocity and acceleration
         :param goal: Pose, PoseStamped or RobotState
         :param method: Interpolate or Path planning
         :param timeout: In case of cuff interaction, indicates the max time to retry before giving up (negative = do not retry)
-        :param kv_max: max K for velocity
-        :param ka_max: max K for acceleration
+        :param kv_max: max K for velocity, float or dictionary joint_name:value
+        :param ka_max: max K for acceleration, float or dictionary joint_name:value
         :param test: pointer to a function that returns True if execution must stop now. /!\ Should be fast, it will be called at 100Hz!
         :return: None
         :raises: ValueError if IK has no solution
@@ -283,17 +283,27 @@ class ArmCommander(Limb):
         if goal is None:
             raise ValueError('This goal is not reachable')
 
-        retry = True
-        t0 = rospy.get_time()
-        while retry and timeout > 0 and rospy.get_time()-t0 < timeout:
+        if timeout < 0:
             trajectory = self.interpolate_joint_space(goal, kv_max=kv_max, ka_max=ka_max)
             if display_only:
                 self.display(trajectory)
-                break
+                return True
             else:
-                retry = not self.execute(trajectory, test=test)
-            if retry:
-                rospy.sleep(1)
+                return self.execute(trajectory, test=test)
+
+        else:
+            retry = True
+            t0 = rospy.get_time()
+            while retry and timeout >= 0 and rospy.get_time()-t0 < timeout:
+                trajectory = self.interpolate_joint_space(goal, kv_max=kv_max, ka_max=ka_max)
+                if display_only:
+                    self.display(trajectory)
+                    break
+                else:
+                    retry = not self.execute(trajectory, test=test)
+                if retry:
+                    rospy.sleep(1)
+            return not display_only and not retry
 
     ######################## OPERATIONS ON TRAJECTORIES
 
@@ -356,14 +366,14 @@ class ArmCommander(Limb):
             reversed.joint_trajectory.points[p].time_from_start = trajectory.joint_trajectory.points[p].time_from_start
         return reversed
 
-    def interpolate_joint_space(self,goal,nb_points=100, kv_max=-1, ka_max=-1, start=None):
+    def interpolate_joint_space(self,goal,nb_points=100, kv_max=None, ka_max=None, start=None):
         """
         Interpolate a trajectory from a start state (or current state) to a goal in joint space
         If no kv and ka max are given the default are used
         :param goal: A RobotState to be used as the goal of the trajectory
         :param nb_points: Number of joint-space points in the final trajectory
-        :param kv_max: max K for velocity, can be a vector or a single value
-        :param ka_max: max K for acceleration, can be a vector or a single value
+        :param kv_max: max K for velocity, can be a dictionary joint_name:value or a single value
+        :param ka_max: max K for acceleration, can be a dictionary joint_name:value or a single value
         :param start: A RobotState to be used as the start state, joint order must be the same as the goal
         :return: The corresponding RobotTrajectory
         """
@@ -378,10 +388,10 @@ class ArmCommander(Limb):
                 coeff.append(min_value)
             return coeff
 
-        def calculate_max_speed(kv_des, ka,dist):
+        def calculate_max_speed(kv_des, ka, dist):
             kv = []
             for i in range(len(dist)):
-                if dist[i] <= (3.0/2)*(ka[i]/kv_des[i]):
+                if dist[i] <= 1.5*kv_des[i]*kv_des[i]/ka[i]:
                     kv.append(np.sqrt((2.0/3)*dist[i]*ka[i]))
                 else:
                     kv.append(kv_des[i])
@@ -420,9 +430,9 @@ class ArmCommander(Limb):
                 q_values = np.ones(nb_points)*qi
             return q_values
 
-        if isinstance(kv_max, float) or isinstance(kv_max, int) and kv_max<0:
+        if kv_max is None:
             kv_max = self.kv_max
-        if isinstance(kv_max, float) or isinstance(kv_max, int) and ka_max<0:
+        if ka_max is None:
             ka_max = self.ka_max
 
         # create the joint trajectory message
@@ -438,8 +448,8 @@ class ArmCommander(Limb):
         # calculate the max joint velocity
         dist = np.array(goal_state) - np.array(start_state)
         abs_dist = np.absolute(dist)
-        ka = np.ones(len(goal_state))*kv_max
-        kv = np.ones(len(goal_state))*ka_max
+        ka = np.ones(len(goal_state))*map(lambda name: ka_max[name], goal.joint_state.name)
+        kv = np.ones(len(goal_state))*map(lambda name: kv_max[name], goal.joint_state.name)
         kv = calculate_max_speed(kv,ka,abs_dist)
 
         # calculate the synchronisation coefficients
@@ -506,16 +516,19 @@ class ArmCommander(Limb):
         ftg.trajectory = trajectory
         self.client.send_goal(ftg)
         # Blocking part, wait for the callback or a collision or a user manipulation to stop the trajectory
-        stop = False
-        while not stop and self.client.simple_state != SimpleGoalState.DONE:
-            if self._stop_reason!='' or callable(test) and test():
-                stop = True
-            else:
-                self._rate.sleep()
-        if stop and self.client.simple_state != SimpleGoalState.DONE:
-            self.client.cancel_goal()
-        # do not reset self._stop_reason here, it may be still in collision
-        return not stop
+
+        while self.client.simple_state != SimpleGoalState.DONE:
+
+            if callable(test) and test():
+                return True
+
+            if self._stop_reason!='':
+                self.client.cancel_goal()
+                return False
+
+            self._rate.sleep()
+
+        return True
 
     def close(self):
         """
