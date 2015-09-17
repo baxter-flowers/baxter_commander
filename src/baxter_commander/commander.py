@@ -574,14 +574,19 @@ class ArmCommander(Limb):
     def close(self):
         """
         Open the gripper
+        :return: True if an object has been grasped
         """
-        self._gripper.close(True)
+        return self._gripper.close(True)
 
     def open(self):
         """
         Close the gripper
+        return: True if an object has been released
         """
-        self._gripper.open(True)
+        return self._gripper.open(True)
+
+    def gripping(self):
+        return self._gripper.gripping()
 
     def extract_perturbation(self, window=50, sleep_step=0.1):
         """
