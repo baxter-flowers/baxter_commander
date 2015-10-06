@@ -11,8 +11,13 @@ class FaceCommander(Head):
         Head.__init__(self)
         self._world = 'base'
         self._tf_listener = TransformListener()
+        self.set_pan(0)
 
-    def look_at(self, obj):
+    def look_at(self, obj=None):
+        if obj is None:
+            self.set_pan(0)
+            return True
+
         if isinstance(obj, str):
             pose = self._tf_listener.lookupTransform('head', obj, rospy.Time(0))
         else:
