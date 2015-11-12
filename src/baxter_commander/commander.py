@@ -518,7 +518,7 @@ class ArmCommander(Limb):
             # append the position to the message
             traj_msg.points.append(point)
         # put name of joints to be moved
-        traj_msg.joint_names = self.group.get_active_joints()
+        traj_msg.joint_names = self.joint_names()
         # send the message
         rt.joint_trajectory = traj_msg
         return rt
