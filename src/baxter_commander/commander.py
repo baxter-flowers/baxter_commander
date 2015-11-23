@@ -1,5 +1,6 @@
 import numpy as np
 import rospy
+import xmltodict
 
 from baxter_pykdl import baxter_kinematics
 from baxter_interface import Limb, Gripper
@@ -105,6 +106,18 @@ class ArmCommander(Limb):
 
     def group_name(self):
         return self.name+'_arm'
+
+    def joint_limits(self):
+        xml_urdf = rospy.get_param('robot_description')
+        dict_urdf = xmltodict.parse(xml_urdf)
+        joints_urdf = []
+        joints_urdf.append([j['@name'] for j in dict_urdf['robot']['joint'] if j['@name'] in self.joint_names()])
+        joints_urdf.append([[float(j['limit']['@lower']), float(j['limit']['@upper'])] for j in dict_urdf['robot']['joint'] if j['@name'] in self.joint_names()])
+        # reorder the joints limits
+        limits = {}
+        limits['joint_names'] = self.joint_names()
+        limits['limits'] = [joints_urdf[1][joints_urdf[0].index(name)] for name in self.joint_names()]
+        return limits
 
     def get_current_state(self):
         """
@@ -304,6 +317,20 @@ class ArmCommander(Limb):
                 if retry:
                     rospy.sleep(1)
             return not display_only and not retry
+
+    def get_random_pose(self):
+        # get joint names
+        joint_names = self.joint_names()
+        # create a random joint state
+        bounds = np.array(self.joint_limits()['limits'])
+        joint_state = np.random.uniform(bounds[:,0], bounds[:,1], len(joint_names))
+        # append it in a robot state
+        goal = RobotState()
+        goal.joint_state.name = joint_names
+        goal.joint_state.position = joint_state
+        goal.joint_state.header.stamp = rospy.Time.now()
+        goal.joint_state.header.frame_id = 'base'
+        return goal
 
     ######################## OPERATIONS ON TRAJECTORIES
 
