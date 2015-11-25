@@ -561,7 +561,9 @@ class ArmCommander(Limb):
         if isinstance(trajectory, RobotTrajectory):
             dt.trajectory.append(trajectory)
         elif isinstance(trajectory, JointTrajectory):
-            dt.trajectory.joint_state.append(trajectory)
+            rt = RobotTrajectory()
+            rt.joint_trajectory = trajectory
+            dt.trajectory.append(rt)
         else:
             raise NotImplementedError("ArmCommander.display() expected type RobotTrajectory or JointTrajectory, got {}".format(str(type(trajectory))))
         self._display_traj.publish(dt)
