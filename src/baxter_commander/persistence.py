@@ -1,14 +1,16 @@
 from moveit_msgs.msg import RobotTrajectory, RobotState
-from trajectory_msgs.msg import JointTrajectoryPoint
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from sensor_msgs.msg import JointState
 from rospy import Duration
 
 __all__ = ['trajtodict', 'dicttotraj', 'statetodict', 'dicttostate']
 
-def trajtodict( traj):
+def trajtodict(traj):
     if isinstance(traj, RobotTrajectory):
-        dict_traj = {"joint_names": traj.joint_trajectory.joint_names, "points": []}
-        for p in traj.joint_trajectory.points:
+        traj = traj.joint_trajectory
+    if isinstance(traj, JointTrajectory):
+        dict_traj = {"joint_names": traj.joint_names, "points": []}
+        for p in traj.points:
             d = {"positions":p.positions, "time_from_start":p.time_from_start.to_sec()}
             dict_traj["points"].append(d)
         return dict_traj
