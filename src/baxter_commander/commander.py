@@ -631,6 +631,18 @@ class ArmCommander(Limb):
             rospy.sleep(sleep_step/window)
         return np.max(diffs)
 
+    def wait_for_human_grasp(self, treshold=1, rate=10):
+        def detect_variation():
+            new_effort = np.array(self.get_current_state().joint_state.effort)
+            delta = np.absolute(effort - new_effort)
+            return np.amax(delta) > treshold
+        # record the effort at calling time
+        effort = np.array(self.get_current_state().joint_state.effort)
+        # loop till the detection of changing effort
+        rate = rospy.Rate(rate)
+        while not detect_variation():
+            rate.sleep()
+
     ####################################### Joint Recorder of this arm
     def recorder_start(self, rate_hz=50.):
         """
