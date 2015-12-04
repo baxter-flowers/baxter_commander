@@ -25,8 +25,10 @@ def m4x4_to_list(m4x4):
 def _is_indexable(var):
     try:
         var[0]
-    except IndexError:
+    except TypeError:
         return False
+    except IndexError:
+        return True
     return True
 
 def pose_to_list(pose):
