@@ -19,6 +19,9 @@ def list_to_m4x4(pose_list):
     quat = tf.transformations.quaternion_matrix(pose_list[1])
     return dot(pos, quat)
 
+def m4x4_to_list(m4x4):
+    return [tf.transformations.translation_from_matrix(m4x4), tf.transformations.quaternion_from_matrix(m4x4)]
+
 def _is_indexable(var):
     try:
         var[0]
