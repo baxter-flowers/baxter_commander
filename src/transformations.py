@@ -6,13 +6,18 @@ from std_msgs.msg import *
 from numpy import ndarray, dot, sqrt, array, arccos, inner
 import tf
 
-__all__ = ['pose_to_list', 'quat_to_list', 'list_to_quat', 'list_to_pose', 'list_to_pose', 'quat_rotate',
+__all__ = ['pose_to_list', 'quat_to_list', 'list_to_quat', 'list_to_pose', 'list_to_pose', 'quat_rotate', 'list_to_m4x4',
            'multiply_transform', 'scale_transform', 'inverse_transform', 'raw_list_to_list', 'distance', 'norm']
 
 """
 This module extends a bit the tf module.
 We should take some time one day to clean this and merge it into the official tf.transformations module
 """
+
+def list_to_m4x4(pose_list):
+    pos = tf.transformations.translation_matrix(pose_list[0])
+    quat = tf.transformations.quaternion_matrix(pose_list[1])
+    return dot(pos, quat)
 
 def _is_indexable(var):
     try:
@@ -101,20 +106,24 @@ def quat_rotate(rotation, vector):
 def multiply_transform(t1, t2):
     """
     Combines two transformations together
-    :param t1: [[x, y, z], [x, y, z, w]]
-    :param t2: [[x, y, z], [x, y, z, w]]
-    :return: The combination t1-t2 in the form [[x, y, z], [x, y, z, w]]
+    The order is translation first, rotation then
+    :param t1: [[x, y, z], [x, y, z, w]] or matrix 4x4
+    :param t2: [[x, y, z], [x, y, z, w]] or matrix 4x4
+    :return: The combination t1-t2 in the form [[x, y, z], [x, y, z, w]] or matrix 4x4
     """
-    t1m = tf.transformations.translation_matrix(t1[0])
-    r1m = tf.transformations.quaternion_matrix(t1[1])
-    m1m = dot(t1m, r1m)
-    t2m = tf.transformations.translation_matrix(t2[0])
-    r2m = tf.transformations.quaternion_matrix(t2[1])
-    m2m = dot(t2m, r2m)
-    rm = dot(m1m, m2m)
-    rt = tf.transformations.translation_from_matrix(rm)
-    rr = tf.transformations.quaternion_from_matrix(rm)
-    return rt, rr
+    if _is_indexable(t1) and _is_indexable(t1[0]):
+        t1m = tf.transformations.translation_matrix(t1[0])
+        r1m = tf.transformations.quaternion_matrix(t1[1])
+        m1m = dot(t1m, r1m)
+        t2m = tf.transformations.translation_matrix(t2[0])
+        r2m = tf.transformations.quaternion_matrix(t2[1])
+        m2m = dot(t2m, r2m)
+        rm = dot(m1m, m2m)
+        rt = tf.transformations.translation_from_matrix(rm)
+        rr = tf.transformations.quaternion_from_matrix(rm)
+        return rt, rr
+    else:
+        return dot(t1, t2)
 
 def scale_transform(t, scale):
     """
