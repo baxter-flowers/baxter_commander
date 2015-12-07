@@ -1,10 +1,11 @@
 <launch>
+  <!-- To be launched only if FK and IK are provided by MoveIt i.e. ArmCommander(..., kinematics="ros") -->
+  
   <node name="move_group" pkg="moveit_ros_move_group" type="move_group" respawn="false" output="screen" args="joint_states:=/robot/joint_states">
 
     <!-- MoveGroup capabilities to load -->
     <param name="capabilities" value="move_group/MoveGroupCartesianPathService
-				      move_group/MoveGroupKinematicsService
-				      " />
+                                      move_group/MoveGroupKinematicsService" />
 
   </node>
 </launch>

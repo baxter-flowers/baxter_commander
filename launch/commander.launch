@@ -1,4 +1,5 @@
 <launch>
+  <param name="robot_description_semantic" textfile="$(find baxter_commander)/config/baxter.srdf" />
   <node name="joint_trajectory_action_server" pkg="baxter_interface" type="joint_trajectory_action_server.py"/>
 
   <arg name="gui" default="true"/>
@@ -6,7 +7,7 @@
     
   <node if="$(arg gui)" name="$(anon rviz)" pkg="rviz" type="rviz" respawn="false" args=" -d $(arg rviz_config)" output="log"/>
   
-  <!-- Move group is needed since it provides FK and IK (in ROS mode) -->
-  <include file="$(find baxter_commander)/launch/move_group.launch"/>
-
+  <!-- Move group is only needed if it provides FK and IK (in ROS mode) -->
+  <!--<include file="$(find baxter_commander)/launch/move_group.launch"/>-->
+  
 </launch>
