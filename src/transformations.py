@@ -116,7 +116,7 @@ def multiply_transform(t1, t2):
     :param t2: [[x, y, z], [x, y, z, w]] or matrix 4x4
     :return: The combination t1-t2 in the form [[x, y, z], [x, y, z, w]] or matrix 4x4
     """
-    if _is_indexable(t1) and _is_indexable(t1[0]):
+    if _is_indexable(t1) and len(t1)==2:
         t1m = tf.transformations.translation_matrix(t1[0])
         r1m = tf.transformations.quaternion_matrix(t1[1])
         m1m = dot(t1m, r1m)
