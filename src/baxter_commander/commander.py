@@ -16,7 +16,7 @@ from sensor_msgs.msg import JointState
 from geometry_msgs.msg import Pose, PoseStamped
 from threading import Lock
 from copy import deepcopy
-from transformations import pose_to_list, list_to_pose, distance, _is_indexable as is_indexable
+from transformations import pose_to_list, list_to_pose
 from tf import TransformListener
 
 from . joint_recorder import JointRecorder

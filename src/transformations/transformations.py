@@ -7,7 +7,7 @@ from numpy import ndarray, dot, sqrt, array, arccos, inner
 import tf
 
 __all__ = ['pose_to_list', 'quat_to_list', 'list_to_quat', 'list_to_pose', 'list_to_pose', 'quat_rotate', 'list_to_m4x4',
-           'multiply_transform', 'scale_transform', 'inverse_transform', 'raw_list_to_list', 'distance', 'norm']
+           'multiply_transform', 'scale_transform', 'inverse_transform', 'raw_list_to_list', 'distance', 'distance_quat', 'norm']
 
 """
 This module extends a bit the tf module.
