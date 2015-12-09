@@ -619,18 +619,6 @@ class ArmCommander(Limb):
     def gripping(self):
         return self._gripper.gripping()
 
-    def extract_perturbation(self, window=50, sleep_step=0.1):
-        """
-        Sleeps a sleep step and extracts the difference between command state and current state
-        :return: The cartesian distance in meters between command and current
-        """
-        diffs = []
-        for i in range(window):
-            diffs.append(distance(self._tf_listener.lookupTransform(self._world, self.name+'_gripper', rospy.Time(0)),
-                                  self._tf_listener.lookupTransform('/reference/'+self._world, '/reference/'+self.name+'_gripper', rospy.Time(0))))
-            rospy.sleep(sleep_step/window)
-        return np.max(diffs)
-
     def wait_for_human_grasp(self, treshold=1, rate=10):
         def detect_variation():
             new_effort = np.array(self.get_current_state().joint_state.effort)
