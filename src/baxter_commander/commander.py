@@ -19,7 +19,7 @@ from copy import deepcopy
 from transformations import pose_to_list, list_to_pose
 from tf import TransformListener
 
-from . joint_recorder import JointRecorder
+from . recorder import Recorder
 
 __all__ = ['ArmCommander']
 
@@ -43,7 +43,7 @@ class ArmCommander(Limb):
         self._gripper = Gripper(name)
         self._rate = rospy.Rate(rate)
         self._tf_listener = TransformListener()
-        self._joint_recorder = JointRecorder(self.joint_names())
+        self.recorder = Recorder(name)
 
         # Kinematics services: Selection among different services
         self._kinematics_selected = kinematics
@@ -630,21 +630,3 @@ class ArmCommander(Limb):
         rate = rospy.Rate(rate)
         while not detect_variation():
             rate.sleep()
-
-    ####################################### Joint Recorder of this arm
-    def recorder_start(self, rate_hz=50.):
-        """
-        State recording the joint states of this arm at the specified frame rate
-        :param rate_hz: a frame rate, inferior to rostopic hz /robot/state
-        """
-        return self._joint_recorder.recorder_start(rate_hz)
-
-    def recorder_stop(self, include_position=True, include_velocity=False, include_effort=False):
-        """
-        Stop the joint recording and returns the recorded trajectory of joints declared in the constructor
-        :param include_position: if True, the joint positions will be included in the returned trajectory
-        :param include_velocity:  if True, the joint velocities will be included in the returned trajectory
-        :param include_effort:  if True, the joint efforts will be included in the returned trajectory
-        :return: the recorded JointTrajectory
-        """
-        return self._joint_recorder.recorder_stop(include_position, include_velocity, include_effort)

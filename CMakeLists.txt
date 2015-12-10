@@ -4,7 +4,7 @@ project(baxter_commander)
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
-find_package(catkin REQUIRED baxter_interface baxter_core_msgs actionlib moveit_msgs moveit_ros_visualization trajectory_msgs control_msgs geometry_msgs sensor_msgs)
+find_package(catkin REQUIRED baxter_interface baxter_core_msgs actionlib moveit_msgs moveit_ros_visualization trajectory_msgs nav_msgs control_msgs geometry_msgs sensor_msgs)
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
