@@ -619,11 +619,16 @@ class ArmCommander(Limb):
     def gripping(self):
         return self._gripper.gripping()
 
-    def wait_for_human_grasp(self, treshold=1, rate=10):
+    def wait_for_human_grasp(self, threshold=1, rate=10):
+        """
+        Blocks until external motion is given to the arm
+        :param threshold: 
+        :param rate: rate of control loop in Hertz
+        """
         def detect_variation():
             new_effort = np.array(self.get_current_state().joint_state.effort)
             delta = np.absolute(effort - new_effort)
-            return np.amax(delta) > treshold
+            return np.amax(delta) > threshold
         # record the effort at calling time
         effort = np.array(self.get_current_state().joint_state.effort)
         # loop till the detection of changing effort
