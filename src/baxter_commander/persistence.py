@@ -1,9 +1,11 @@
 from moveit_msgs.msg import RobotTrajectory, RobotState
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+from nav_msgs.msg import Path
 from sensor_msgs.msg import JointState
-from rospy import Duration
+from transformations import pose_to_list, list_to_pose
+from rospy import Duration, Time
 
-__all__ = ['trajtodict', 'dicttotraj', 'statetodict', 'dicttostate']
+__all__ = ['trajtodict', 'dicttotraj', 'statetodict', 'dicttostate', 'pathtodict', 'dicttopath']
 
 def trajtodict(traj):
     if isinstance(traj, RobotTrajectory):
@@ -40,3 +42,22 @@ def dicttostate(dic):
     rs.joint_state.name = dic["name"]
     rs.joint_state.position = dic["position"]
     return rs
+
+def pathtodict(path):
+    assert isinstance(path, Path)
+    frame_id = path.header.frame_id
+    if frame_id == '' and len(path.poses) > 0:
+        frame_id = path.poses[0].header.frame_id
+
+    dic = {"frame_id": frame_id, "points": []}
+    for point in path.poses:
+        dic["points"].append({"time": point.header.stamp.to_sec(), "pose": pose_to_list(point)})
+    return dic
+
+def dicttopath(dic):
+    path = Path()
+    path.header.frame_id = dic["frame_id"]
+    for point in dic["points"]:
+        path.poses.append(list_to_pose(point["pose"], frame_id=dic["frame_id"]))
+        path.poses[-1].header.stamp = Time(point["time"])
+    return path
