@@ -164,22 +164,26 @@ def raw_list_to_list(t):
 def distance(p1, p2):
     """
     Cartesian distance between two PoseStamped or PoseLists
-    :param p1: point 1 (list or PoseStamped)
-    :param p2: point 2 (list or PoseStamped)
+    :param p1: point 1 (list, Pose or PoseStamped)
+    :param p2: point 2 (list, Pose or PoseStamped)
     :return: cartesian distance (float)
     """
-    if isinstance(p1, PoseStamped):
-        x = p1.pose.position.x - p2.pose.position.x
-        y = p1.pose.position.y - p2.pose.position.y
-        z = p1.pose.position.z - p2.pose.position.z
-    elif _is_indexable(p1[0]):
-        x = p1[0][0] - p2[0][0]
-        y = p1[0][1] - p2[0][1]
-        z = p1[0][2] - p2[0][2]
-    else:
-        x = p1[0] - p2[0]
-        y = p1[1] - p2[1]
-        z = p1[2] - p2[2]
+    def xyz(some_pose):
+        if isinstance(some_pose, PoseStamped):
+            return some_pose.pose.position.x, some_pose.pose.position.y, some_pose.pose.position.z
+        elif isinstance(some_pose, Pose):
+            return some_pose.position.x, some_pose.position.y, some_pose.position.z
+        elif _is_indexable(some_pose[0]):
+            return some_pose[0][0], some_pose[0][1], some_pose[0][2]
+        else:
+            return some_pose[0], some_pose[1], some_pose[2]
+
+    x1, y1, z1 = xyz(p1)
+    x2, y2, z2 = xyz(p2)
+
+    x = x1 - x2
+    y = y1 - y2
+    z = z1 - z2
     return sqrt(x*x + y*y + z*z)
 
 def distance_quat(p1, p2):
@@ -205,10 +209,14 @@ def norm(point):
     :param point: point to compute the norm for (list or PoseStamped)
     :return: its norm (float)
     """
-    if type(point)==PoseStamped:
+    if isinstance(point, PoseStamped):
         x = point.pose.position.x
         y = point.pose.position.y
         z = point.pose.position.z
+    elif isinstance(point, Pose):
+        x = point.position.x
+        y = point.position.y
+        z = point.position.z
     else:
         x = point[0][0]
         y = point[0][1]
