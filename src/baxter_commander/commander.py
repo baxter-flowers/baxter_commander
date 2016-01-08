@@ -119,16 +119,19 @@ class ArmCommander(Limb):
         limits['limits'] = [joints_urdf[1][joints_urdf[0].index(name)] for name in self.joint_names()]
         return limits
 
-    def get_current_state(self):
+    def get_current_state(self, list_joint_names=[]):
         """
         Returns the current RobotState describing all joint states
+        :param list_joint_names: If not empty, returns only the state of the requested joints
         :return: a RobotState corresponding to the current state read on /robot/joint_states
         """
+        if len(list_joint_names) == 0:
+            list_joint_names = self.joint_names()
         state = RobotState()
-        state.joint_state.name = self.joint_names()
-        state.joint_state.position = map(self.joint_angle, self.joint_names())
-        state.joint_state.velocity = map(self.joint_velocity, self.joint_names())
-        state.joint_state.effort = map(self.joint_effort, self.joint_names())
+        state.joint_state.name = list_joint_names
+        state.joint_state.position = map(self.joint_angle, list_joint_names)
+        state.joint_state.velocity = map(self.joint_velocity, list_joint_names)
+        state.joint_state.effort = map(self.joint_effort, list_joint_names)
         return state
 
     def get_ik(self, eef_poses, seeds=[]):
@@ -622,16 +625,20 @@ class ArmCommander(Limb):
     def wait_for_human_grasp(self, threshold=1, rate=10):
         """
         Blocks until external motion is given to the arm
-        :param threshold: 
+        :param threshold:
         :param rate: rate of control loop in Hertz
         """
         def detect_variation():
-            new_effort = np.array(self.get_current_state().joint_state.effort)
+            new_effort = np.array(self.get_current_state([self.name+'_w0',
+                                                          self.name+'_w1',
+                                                          self.name+'_w2']).joint_state.effort)
             delta = np.absolute(effort - new_effort)
             return np.amax(delta) > threshold
         # record the effort at calling time
-        effort = np.array(self.get_current_state().joint_state.effort)
+        effort = np.array(self.get_current_state([self.name+'_w0',
+                                                  self.name+'_w1',
+                                                  self.name+'_w2']).joint_state.effort)
         # loop till the detection of changing effort
         rate = rospy.Rate(rate)
-        while not detect_variation():
+        while not detect_variation() and not rospy.is_shutdown():
             rate.sleep()
