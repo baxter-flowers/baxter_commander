@@ -7,7 +7,7 @@ from numpy import ndarray, dot, sqrt, array, arccos, inner
 import tf
 
 __all__ = ['pose_to_list', 'quat_to_list', 'list_to_quat', 'list_to_pose', 'list_to_pose', 'quat_rotate', 'list_to_m4x4',
-           'multiply_transform', 'scale_transform', 'inverse_transform', 'raw_list_to_list', 'distance', 'distance_quat', 'norm']
+           'multiply_transform', 'scale_transform', 'inverse_transform', 'raw_list_to_list', 'list_to_raw_list', 'distance', 'distance_quat', 'norm']
 
 """
 This module extends a bit the tf module.
@@ -153,9 +153,19 @@ def inverse_transform(t):
     """
     return [quat_rotate(tf.transformations.quaternion_inverse(t[1]), [-t[0][0], -t[0][1], -t[0][2]]), tf.transformations.quaternion_inverse(t[1])]
 
+def list_to_raw_list(poselist):
+    """
+    Flatten a normal pose list into a raw list
+    :param poselist: a formatted list [[x,y,z], [x,y,z,w]]
+    :return: a raw list [x, y, z, x, y, z, w]
+    """
+    if not (isinstance(poselist, list) or isinstance(poselist, tuple)):
+        raise TypeError("flatten_pose({}) does not accept this type of argument".format(str(type(poselist))))
+    return [field for pose in poselist for field in pose]
+
 def raw_list_to_list(t):
     """
-
+    Reassemble a flattened list to a normal pose list
     :param t: a raw list or tuple [x, y, z, x, y, z, w]
     :return: a formatted list [[x,y,z], [x,y,z,w]]
     """
