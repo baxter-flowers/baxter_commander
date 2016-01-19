@@ -318,7 +318,7 @@ class ArmCommander(Limb):
             for i in range(3):
                 if rpy[i]:
                     rpy[i] = rot[i]
-            states.correct_state_orientation(goal, rpy,
+            goal = states.correct_state_orientation(goal, rpy,
                                              self._kinematics_pykdl, self.name)
 
         # parameters for trapezoidal method

@@ -1,4 +1,5 @@
 import tf
+import copy
 
 
 def state_to_pose_rpy(state, kinematic, arm):
@@ -39,6 +40,7 @@ def correct_state_orientation(state, rpy, kinematic, arm):
     :param kinematic: baxter_pykdl attribute
     :return: new RobotState with orientation constrained
     """
+    state = copy.deepcopy(state)
     pos, rot = state_to_pose_rpy(state, kinematic, arm)
     rpy_new = []
     for i in range(3):
@@ -49,7 +51,8 @@ def correct_state_orientation(state, rpy, kinematic, arm):
     quat_corrected = tuple(tf.transformations.quaternion_from_euler(rpy_new[0],
                                                                     rpy_new[1],
                                                                     rpy_new[2]))
-    ik = kinematic.inverse_kinematics(pos, quat_corrected)
+    ik = kinematic.inverse_kinematics(pos, quat_corrected,
+                                      seed=state.joint_state.position)
     joints_corrected = [ik[()][i] for i in range(7)]
     state_corrected = state
     state_corrected.joint_state.position = joints_corrected
