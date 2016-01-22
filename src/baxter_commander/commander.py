@@ -371,7 +371,8 @@ class ArmCommander(Limb):
         :param n_points: The number of way points (high number will be longer to compute)
         :param time: time of the overall motion
         :param max_speed: Maximum speed in rad/sec for each joint
-        :return: a RobotTrajectory from the current pose and applying the given cartesian path to the end effector
+        :return: [rt, success_rate] a RobotTrajectory from the current pose and applying the given cartesian path to the
+        end effector and the success rate of the motion (-1 in case of total failure)
         """
         pose_eef_approach = self.get_fk(frame_id, start_state)
         waypoints = []
@@ -382,6 +383,9 @@ class ArmCommander(Limb):
             p.pose.position.z += float(path[2]*num)/n_points
             waypoints.append(p)
         path = self.get_ik(waypoints, start_state if start_state else self.get_current_state()) # Provide the state here avoid the 1st point to jump
+
+        if path[0] is None:
+            return None, -1
 
         trajectory = RobotTrajectory()
         trajectory.joint_trajectory.joint_names = path[0].joint_state.name
