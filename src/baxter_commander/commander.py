@@ -30,7 +30,7 @@ class ArmCommander(Limb):
     This class overloads Limb from the  Baxter Python SDK adding the support of trajectories via RobotState and RobotTrajectory messages
     Allows to control the entire arm either in joint space, or in task space, or (later) with path planning, all with simulation
     """
-    def __init__(self, name, rate=100, kinematics='ros', default_kv_max=1., default_ka_max=0.5):
+    def __init__(self, name, rate=100, kinematics='robot', default_kv_max=1., default_ka_max=0.5):
         """
         :param name: 'left' or 'right'
         :param rate: Rate of the control loop for execution of motions
@@ -165,13 +165,15 @@ class ArmCommander(Limb):
         output = self._kinematics_services[self._kinematics_selected]['ik'](input, seeds)
         return output if len(eef_poses)>1 else output[0]
 
-    def get_fk(self, frame_id, robot_state=None):
+    def get_fk(self, frame_id=None, robot_state=None):
         """
         Return The FK solution oth this robot state according to the method declared in the constructor
         robot_state = None will give the current endpoint pose in frame_id
         :param robot_state: a RobotState message
         :return: [[x, y, z], [x, y, z, w]]
         """
+        if frame_id is None:
+            frame_id = self._world
         if isinstance(robot_state, RobotState) or robot_state is None:
             return self._kinematics_services[self._kinematics_selected]['fk'](frame_id, robot_state)
         else:
@@ -181,16 +183,7 @@ class ArmCommander(Limb):
         if state is None:
             state = self.get_current_state()
         fk = self._kinematics_pykdl.forward_position_kinematics(dict(zip(state.joint_state.name, state.joint_state.position)))
-        ps = PoseStamped()
-        ps.header.frame_id = self._world
-        ps.pose.position.x = fk[0]
-        ps.pose.position.y = fk[1]
-        ps.pose.position.z = fk[2]
-        ps.pose.orientation.x = fk[3]
-        ps.pose.orientation.y = fk[4]
-        ps.pose.orientation.z = fk[5]
-        ps.pose.orientation.w = fk[6]
-        return self._tf_listener.transformPose(frame_id, ps)
+        return [fk[:3], fk[-4:]]
 
     def _get_fk_robot(self, frame_id = None, state=None):
         if state is not None:
@@ -312,14 +305,13 @@ class ArmCommander(Limb):
         # correct the orientation if rpy is set
         if np.array(rpy).any():
             # convert the starting point to rpy pose
-            pos, rot = states.state_to_pose_rpy(start,
-                                                self._kinematics_pykdl,
-                                                self.name)
+            pos, rot = states.state_to_pose(start,
+                                            self,
+                                            True)
             for i in range(3):
                 if rpy[i]:
                     rpy[i] = rot[i]
-            goal = states.correct_state_orientation(goal, rpy,
-                                             self._kinematics_pykdl, self.name)
+            goal = states.correct_state_orientation(goal, rpy, self)
 
         # parameters for trapezoidal method
         kv_max = self.kv_max

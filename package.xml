@@ -38,6 +38,8 @@
   <run_depend>baxter_core_msgs</run_depend>
   <build_depend>baxter_interface</build_depend>
   <run_depend>baxter_interface</run_depend>
+  <build_depend>baxter_pykdl</build_depend>
+  <run_depend>baxter_pykdl</run_depend>
 
   <buildtool_depend>catkin</buildtool_depend>
 
