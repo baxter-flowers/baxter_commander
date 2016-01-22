@@ -53,7 +53,12 @@ def correct_state_orientation(state, rpy, kinematic, arm):
                                                                     rpy_new[2]))
     ik = kinematic.inverse_kinematics(pos, quat_corrected,
                                       seed=state.joint_state.position)
-    joints_corrected = [ik[()][i] for i in range(7)]
-    state_corrected = state
-    state_corrected.joint_state.position = joints_corrected
-    return state_corrected
+    try:
+        joints_corrected = [ik[()][i] for i in range(7)]
+    except TypeError:
+        # IK not found
+        return state
+    else:
+        state_corrected = state
+        state_corrected.joint_state.position = joints_corrected
+        return state_corrected
