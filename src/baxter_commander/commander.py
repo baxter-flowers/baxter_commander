@@ -277,25 +277,32 @@ class ArmCommander(Limb):
                 solutions.append(None)
         return solutions
 
-    def move_to_controlled(self, goal, rpy=[0, 0, 0], display_only=False, method='trapezoidal', timeout=15, stop_test=lambda:False, pause_test=lambda:False):
+    def move_to_controlled_cartesian(self, path, frame_id, time, n_points=50, max_speed=np.pi/4, display_only=False, timeout=15, stop_test=lambda:False, pause_test=lambda:False):
+        def trajectory_callable(start):
+            traj, success_rate = self.generate_cartesian_path(path, frame_id, time, None, n_points, max_speed)
+            if success_rate < 0.5:
+                raise RuntimeError("Unable to generate cartesian path (success rate : {})".format(success_rate))
+            return traj
+        return self.relaunch_motion(trajectory_callable, display_only, timeout, stop_test, pause_test)
+
+    def move_to_controlled(self, goal, rpy=[0, 0, 0], display_only=False, timeout=15, stop_test=lambda:False, pause_test=lambda:False):
         """
         Move to a goal using interpolation in joint space with limitation of velocity and acceleration
         :param goal: Pose, PoseStamped or RobotState
-        :param method: choose the method for trajectory generation
-        :param timeout: In case of cuff interaction, indicates the max time to retry before giving up (negative = do not retry)
+        :param timeout: In case of cuff interaction, indicates the max time to retry before giving up
         :param stop_test: pointer to a function that returns True if execution must stop now. /!\ Should be fast, it will be called at 100Hz!
         :param pause_test: pointer to a function that returns True if execution must pause now. If yes it blocks until pause=False again and relaunches the same goal
         /!\ Test functions must be fast, they will be called at 100Hz!
         :return: None
         :raises: ValueError if IK has no solution
         """
+        assert callable(stop_test)
+        assert callable(pause_test)
+
         if not isinstance(goal, RobotState):
             goal = self.get_ik(goal)
         if goal is None:
             raise ValueError('This goal is not reachable')
-
-        assert callable(stop_test)
-        assert callable(pause_test)
 
         # collect the robot state
         start = self.get_current_state()
@@ -315,40 +322,32 @@ class ArmCommander(Limb):
         kv_max = self.kv_max
         ka_max = self.ka_max
 
-        if timeout < 0:
-            trajectory = trajectories.trapezoidal_speed_trajectory(goal,
-                                                                   start=start,
-                                                                   kv_max=kv_max,
-                                                                   ka_max=ka_max)
+        return self.relaunch_motion(lambda start: trajectories.trapezoidal_speed_trajectory(goal, start=start ,kv_max=kv_max, ka_max=ka_max),
+                                    display_only, timeout, stop_test, pause_test)
+
+    def relaunch_motion(self, trajectory_callable, display_only=False, timeout=15, stop_test=lambda:False, pause_test=lambda:False):
+        assert callable(trajectory_callable)
+
+        retry = True
+        t0 = rospy.get_time()
+        while retry and rospy.get_time()-t0 < timeout:
+            start = self.get_current_state()
+            trajectory = trajectory_callable(start)
+
             if display_only:
                 self.display(trajectory)
-                return True
+                break
             else:
-                return self.execute(trajectory, test=stop_test)
+                retry = not self.execute(trajectory, test=lambda: stop_test() or pause_test())
+                if pause_test():
+                    if not stop_test():
+                        retry = True
+                    while pause_test():
+                        rospy.sleep(0.1)
 
-        else:
-            retry = True
-            t0 = rospy.get_time()
-            while retry and timeout >= 0 and rospy.get_time()-t0 < timeout:
-                start = self.get_current_state()
-                trajectory = trajectories.trapezoidal_speed_trajectory(goal,
-                                                                       start=start,
-                                                                       kv_max=kv_max,
-                                                                       ka_max=ka_max)
-                if display_only:
-                    self.display(trajectory)
-                    break
-                else:
-                    retry = not self.execute(trajectory, test=lambda: stop_test() or pause_test())
-                    if pause_test():
-                        if not stop_test():
-                            retry = True
-                        while pause_test():
-                            rospy.sleep(0.1)
-
-                if retry:
-                    rospy.sleep(1)
-            return not display_only and not retry
+            if retry:
+                rospy.sleep(1)
+        return not display_only and not retry
 
     def get_random_pose(self):
         # get joint names
