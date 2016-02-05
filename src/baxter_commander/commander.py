@@ -277,20 +277,15 @@ class ArmCommander(Limb):
                 solutions.append(None)
         return solutions
 
-    def move_to_controlled(self, goal, rpy=[0, 0, 0],
-                           display_only=False, method='trapezoidal',
-                           timeout=15, test=None):
+    def move_to_controlled(self, goal, rpy=[0, 0, 0], display_only=False, method='trapezoidal', timeout=15, stop_test=lambda:False, pause_test=lambda:False):
         """
-        Move to a goal using interpolation in joint space
-        with limitation of velocity and acceleration
+        Move to a goal using interpolation in joint space with limitation of velocity and acceleration
         :param goal: Pose, PoseStamped or RobotState
         :param method: choose the method for trajectory generation
-        :param timeout: In case of cuff interaction,
-        indicates the max time to retry before giving up
-        (negative = do not retry)
-        :param test: pointer to a function
-        that returns True if execution must stop now.
-        /!\ Should be fast, it will be called at 100Hz!
+        :param timeout: In case of cuff interaction, indicates the max time to retry before giving up (negative = do not retry)
+        :param stop_test: pointer to a function that returns True if execution must stop now. /!\ Should be fast, it will be called at 100Hz!
+        :param pause_test: pointer to a function that returns True if execution must pause now. If yes it blocks until pause=False again and relaunches the same goal
+        /!\ Test functions must be fast, they will be called at 100Hz!
         :return: None
         :raises: ValueError if IK has no solution
         """
@@ -298,6 +293,9 @@ class ArmCommander(Limb):
             goal = self.get_ik(goal)
         if goal is None:
             raise ValueError('This goal is not reachable')
+
+        assert callable(stop_test)
+        assert callable(pause_test)
 
         # collect the robot state
         start = self.get_current_state()
@@ -326,7 +324,7 @@ class ArmCommander(Limb):
                 self.display(trajectory)
                 return True
             else:
-                return self.execute(trajectory, test=test)
+                return self.execute(trajectory, test=stop_test)
 
         else:
             retry = True
@@ -341,7 +339,13 @@ class ArmCommander(Limb):
                     self.display(trajectory)
                     break
                 else:
-                    retry = not self.execute(trajectory, test=test)
+                    retry = not self.execute(trajectory, test=lambda: stop_test() or pause_test())
+                    if pause_test():
+                        if not stop_test():
+                            retry = True
+                        while pause_test():
+                            rospy.sleep(0.1)
+
                 if retry:
                     rospy.sleep(1)
             return not display_only and not retry
