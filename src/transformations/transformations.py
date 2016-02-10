@@ -3,24 +3,29 @@
 import rospy
 from geometry_msgs.msg import *
 from std_msgs.msg import *
-from numpy import ndarray, dot, sqrt, array, arccos, inner
+from numpy import ndarray, dot, sqrt, array, arccos, inner, zeros, fill_diagonal
 import tf
 
-__all__ = ['pose_to_list', 'quat_to_list', 'list_to_quat', 'list_to_pose', 'list_to_pose', 'quat_rotate', 'list_to_m4x4', 'm4x4_to_list',
-           'multiply_transform', 'scale_transform', 'inverse_transform', 'raw_list_to_list', 'list_to_raw_list', 'distance', 'distance_quat', 'norm']
+__all__ = ['pose_to_list', 'quat_to_list', 'list_to_quat', 'list_to_pose', 'list_to_pose', 'quat_rotate',
+           'list_to_m4x4', 'm4x4_to_list', 'multiply_transform', 'scale_transform', 'inverse_transform',
+           'raw_list_to_list', 'list_to_raw_list', 'distance', 'distance_quat', 'norm', 'identity',
+           'inverse_m4x4_transform']
 
 """
 This module extends a bit the tf module.
 We should take some time one day to clean this and merge it into the official tf.transformations module
 """
 
+
 def list_to_m4x4(pose_list):
     pos = tf.transformations.translation_matrix(pose_list[0])
     quat = tf.transformations.quaternion_matrix(pose_list[1])
     return dot(pos, quat)
 
+
 def m4x4_to_list(m4x4):
     return [tf.transformations.translation_from_matrix(m4x4), tf.transformations.quaternion_from_matrix(m4x4)]
+
 
 def _is_indexable(var):
     try:
@@ -31,20 +36,22 @@ def _is_indexable(var):
         return True
     return True
 
+
 def pose_to_list(pose):
     """
     Convert a Pose or PoseStamped in Python list ((position), (quaternion))
     :param pose: geometry_msgs.msg.PoseStamped or geometry_msgs.msg.Pose
     :return: the equivalent in list ((position), (quaternion))
     """
-    if type(pose)==geometry_msgs.msg.PoseStamped:
+    if type(pose) == geometry_msgs.msg.PoseStamped:
         return [[pose.pose.position.x, pose.pose.position.y, pose.pose.position.z],
                 [pose.pose.orientation.x, pose.pose.orientation.y, pose.pose.orientation.z, pose.pose.orientation.w]]
-    elif type(pose)==geometry_msgs.msg.Pose:
+    elif type(pose) == geometry_msgs.msg.Pose:
         return [[pose.position.x, pose.position.y, pose.position.z],
                 [pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w]]
     else:
         raise Exception("pose_to_list: parameter of type %s unexpected", str(type(pose)))
+
 
 def list_to_quat(quatlist):
     """
@@ -52,7 +59,8 @@ def list_to_quat(quatlist):
     :param quatlist: [x, y, z, w]
     :return:
     """
-    return geometry_msgs.msg.Quaternion(x= quatlist[0], y= quatlist[1], z= quatlist[2], w= quatlist[3])
+    return geometry_msgs.msg.Quaternion(x=quatlist[0], y=quatlist[1], z=quatlist[2], w=quatlist[3])
+
 
 def list_to_pose(poselist, frame_id="", stamp=rospy.Time(0)):
     """
@@ -74,6 +82,7 @@ def list_to_pose(poselist, frame_id="", stamp=rospy.Time(0)):
     p.pose.orientation.w = poselist[1][3]
     return p
 
+
 def quat_to_list(quat):
     """
     convert a geometry_msgs/Quaternion or numpy.ndarray in list [x, y, z, w]
@@ -82,7 +91,7 @@ def quat_to_list(quat):
     """
     if isinstance(quat, Quaternion):
         return [quat.x, quat.y, quat.z, quat.w]
-    elif isinstance(quat, ndarray) :
+    elif isinstance(quat, ndarray):
         return [quat[0], quat[1], quat[2], quat[3]]
     else:
         raise Exception("quat_to_list expects Quaternion only but received {}".format(str(type(quat))))
@@ -108,6 +117,7 @@ def quat_rotate(rotation, vector):
     q = tf.transformations.quaternion_multiply(q, tf.transformations.quaternion_inverse(rotation))
     return [q[0], q[1], q[2]]
 
+
 def multiply_transform(t1, t2):
     """
     Combines two transformations together
@@ -116,7 +126,7 @@ def multiply_transform(t1, t2):
     :param t2: [[x, y, z], [x, y, z, w]] or matrix 4x4
     :return: The combination t1-t2 in the form [[x, y, z], [x, y, z, w]] or matrix 4x4
     """
-    if _is_indexable(t1) and len(t1)==2:
+    if _is_indexable(t1) and len(t1) == 2:
         t1m = tf.transformations.translation_matrix(t1[0])
         r1m = tf.transformations.quaternion_matrix(t1[1])
         m1m = dot(t1m, r1m)
@@ -129,6 +139,7 @@ def multiply_transform(t1, t2):
         return [list(rt), list(rr)]
     else:
         return dot(t1, t2)
+
 
 def scale_transform(t, scale):
     """
@@ -145,6 +156,7 @@ def scale_transform(t, scale):
     else:
         return [t[0]*scale[0], t[1]*scale[1], t[2]*scale[2]]
 
+
 def inverse_transform(t):
     """
     Return the inverse transformation of t
@@ -152,6 +164,21 @@ def inverse_transform(t):
     :return: t2 such as multiply_transform_(t, t2) = [[0, 0, 0], [0, 0, 0, 1]]
     """
     return [quat_rotate(tf.transformations.quaternion_inverse(t[1]), [-t[0][0], -t[0][1], -t[0][2]]), tf.transformations.quaternion_inverse(t[1])]
+
+
+def inverse_m4x4_transform(mat):
+    """
+    Return the inverse transformation of a m4x4 transformation
+    :param mat: A m4x4 transform
+    :return: inv_transform inverse of the tranformation
+    """
+    inv_transform = zeros((4, 4))
+    rot = mat[:-1, :-1].T
+    inv_transform[:-1, :-1] = rot
+    inv_transform[:-1, -1] = dot(-rot, mat[:-1, -1])
+    inv_transform[-1, -1] = 1
+    return inv_transform
+
 
 def list_to_raw_list(poselist):
     """
@@ -163,13 +190,15 @@ def list_to_raw_list(poselist):
         raise TypeError("flatten_pose({}) does not accept this type of argument".format(str(type(poselist))))
     return [field for pose in poselist for field in pose]
 
+
 def raw_list_to_list(t):
     """
     Reassemble a flattened list to a normal pose list
     :param t: a raw list or tuple [x, y, z, x, y, z, w]
     :return: a formatted list [[x,y,z], [x,y,z,w]]
     """
-    return [[t[0], t[1], t[2]],[t[3], t[4], t[5], t[6]]]
+    return [[t[0], t[1], t[2]], [t[3], t[4], t[5], t[6]]]
+
 
 def distance(p1, p2):
     """
@@ -196,6 +225,7 @@ def distance(p1, p2):
     z = z1 - z2
     return sqrt(x*x + y*y + z*z)
 
+
 def distance_quat(p1, p2):
     """
     Returns the angle between two quaternions
@@ -212,6 +242,7 @@ def distance_quat(p1, p2):
         p2 = p2[1]
     dotp = inner(array(p1), array(p2))
     return arccos(2*dotp*dotp-1)
+
 
 def norm(point):
     """
@@ -232,3 +263,9 @@ def norm(point):
         y = point[0][1]
         z = point[0][2]
     return sqrt(x*x + y*y + z*z)
+
+
+def identity(n):
+    i = zeros((n, n))
+    fill_diagonal(i, 1)
+    return i
