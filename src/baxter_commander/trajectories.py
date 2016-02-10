@@ -5,8 +5,8 @@ from sensor_msgs.msg import JointState
 import rospy
 import numpy as np
 from . import states
+from copy import deepcopy
 import tf
-import copy
 
 
 def states_to_trajectory(states, time_step=0.1):
@@ -165,6 +165,69 @@ def trapezoidal_speed_trajectory(goal, start,
     rt.joint_trajectory.joint_names = start.joint_state.name
     return rt
 
+def generate_cartesian_path(path, frame_id, time, commander, start_state=None, n_points=50, max_speed=np.pi/4):
+        """
+        Generate a cartesian path of the end effector of "descent" meters where path = [x, y, z] wrt frame_id
+        move_group.compute_cartesian_path does not allow to start from anything else but the current state, use this instead
+        :param start_state: The start state to compute the trajectory from
+        :param path: [x, y, z] The vector to follow in straight line
+        :param n_points: The number of way points (high number will be longer to compute)
+        :param time: time of the overall motion
+        :param commander: Commander providing FK, IK and current state
+        :param max_speed: Maximum speed in rad/sec for each joint
+        :return: [rt, success_rate] a RobotTrajectory from the current pose and applying the given cartesian path to the
+        end effector and the success rate of the motion (-1 in case of total failure)
+        """
+        pose_eef_approach = commander.get_fk(frame_id, start_state)
+        waypoints = []
+        for num in range(n_points):
+            p = deepcopy(pose_eef_approach)
+            p.pose.position.x += float(path[0]*num)/n_points
+            p.pose.position.y += float(path[1]*num)/n_points
+            p.pose.position.z += float(path[2]*num)/n_points
+            waypoints.append(p)
+        path = commander.get_ik(waypoints, start_state if start_state else commander.get_current_state()) # Provide the state here avoid the 1st point to jump
+
+        if path[0] is None:
+            return None, -1
+
+        trajectory = RobotTrajectory()
+        trajectory.joint_trajectory.joint_names = path[0].joint_state.name
+
+        # "Jumps" detection: points with speed > max_speed are eliminated
+        old_joint_state = None  # Will store the joint_state of the previous point...
+        old_time_sec = float('inf')        # ...to compute the speed between 2 points in joint space
+        jump_occurs = False
+
+        for num, state in enumerate(path):
+            time_sec = float(num*time)/len(path)
+            if state:
+                if old_time_sec < time_sec:
+                    distance = (np.abs(old_joint_state-state.joint_state.position)%(np.pi))/(time_sec-old_time_sec)
+                    jump_occurs = np.any(distance>max_speed)
+                if not jump_occurs:
+                    jtp = JointTrajectoryPoint()
+                    jtp.positions = state.joint_state.position
+                    jtp.time_from_start = rospy.Duration(time_sec)
+                    trajectory.joint_trajectory.points.append(jtp)
+                    old_joint_state = np.array(state.joint_state.position)
+                    old_time_sec = time_sec
+
+        successrate = float(len(trajectory.joint_trajectory.points))/n_points
+        return trajectory, successrate
+
+def generate_reverse_trajectory(trajectory):
+    """
+    Reverse the trajectory such as: state S -> trajectory T -> state B -> reverse_trajectory(T) -> state A
+    :param trajectory: a RobotTrajectory
+    :return: a RobotTrajectory
+    """
+    reversed = deepcopy(trajectory)
+    reversed.joint_trajectory.points.reverse()
+    n_points = len(trajectory.joint_trajectory.points)
+    for p in range(n_points):
+        reversed.joint_trajectory.points[p].time_from_start = trajectory.joint_trajectory.points[p].time_from_start
+    return reversed
 
 def minimum_jerk_trajectory(goal, start, commander, max_speed=0.2, nb_points=100, duration=None):
     """
