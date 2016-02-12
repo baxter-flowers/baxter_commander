@@ -1,4 +1,4 @@
-# Baxter Commander (package `baxter_commander`)
+# Baxter Commander
 Custom improvements to the baxter_interface package to control Baxter at a higher level.
 Baxter Commander features are:
 
@@ -22,4 +22,13 @@ Start the background service and open an ipython notebook with the [example note
 roslaunch baxter_commander commander.launch # gui:=false to disable motion preview in RViz
 cd baxter_commander/notebooks
 ipython notebook
+```
+
+## Installation procedure
+Download `baxter_commander` in your ROS workspace src directory `~/ros_ws/src/`
+```
+sudo apt-get install ros-indigo-moveit-full python-pip
+sudo pip install xmltodict
+cd ~ros_ws/
+catkin_make
 ```
