@@ -498,11 +498,12 @@ class ArmCommander(Limb):
     def gripping(self):
         return self._gripper.gripping()
 
-    def wait_for_human_grasp(self, threshold=1, rate=10):
+    def wait_for_human_grasp(self, threshold=1, rate=10, ignore_gripping=True):
         """
         Blocks until external motion is given to the arm
         :param threshold:
         :param rate: rate of control loop in Hertz
+        :param ignore_gripping: True if we must wait even if no object is gripped
         """
         def detect_variation():
             new_effort = np.array(self.get_current_state([self.name+'_w0',
@@ -516,5 +517,5 @@ class ArmCommander(Limb):
                                                   self.name+'_w2']).joint_state.effort)
         # loop till the detection of changing effort
         rate = rospy.Rate(rate)
-        while not detect_variation() and not rospy.is_shutdown():
+        while not detect_variation() and not rospy.is_shutdown() and (ignore_gripping or self.gripping()):
             rate.sleep()
