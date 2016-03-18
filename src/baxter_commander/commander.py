@@ -116,10 +116,8 @@ class ArmCommander(Limb):
         joints_urdf.append([j['@name'] for j in dict_urdf['robot']['joint'] if j['@name'] in self.joint_names()])
         joints_urdf.append([[float(j['limit']['@lower']), float(j['limit']['@upper'])] for j in dict_urdf['robot']['joint'] if j['@name'] in self.joint_names()])
         # reorder the joints limits
-        limits = {}
-        limits['joint_names'] = self.joint_names()
-        limits['limits'] = [joints_urdf[1][joints_urdf[0].index(name)] for name in self.joint_names()]
-        return limits
+        return dict(zip(self.joint_names(),
+                        [joints_urdf[1][joints_urdf[0].index(name)] for name in self.joint_names()]))
 
     def get_current_state(self, list_joint_names=[]):
         """
