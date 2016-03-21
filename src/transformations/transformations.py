@@ -230,14 +230,14 @@ def distance_quat(p1, p2):
     """
     Returns the angle between two quaternions
     http://math.stackexchange.com/a/90098
-    :param q1, q2: two quaternions [x, y, z, w] or two poses [[x, y, z], [x, y, z, w]]
+    :param q1, q2: two quaternions [x, y, z, w] or two poses [[x, y, z], [x, y, z, w]] or two PoseStamped
     :return: the angle between them (radians)
     """
     if isinstance(p1, PoseStamped):
         p1 = pose_to_list(p1)
     if isinstance(p2, PoseStamped):
         p2 = pose_to_list(p2)
-    if _is_indexable(p1):
+    if _is_indexable(p1) and _is_indexable(p1[0]):
         p1 = p1[1]
         p2 = p2[1]
     dotp = inner(array(p1), array(p2))
