@@ -89,13 +89,18 @@ class Recorder:
         with self._joint_recorder_lock:
             for idx, js in enumerate(self._joint_recorded_points):
                 jtp = JointTrajectoryPoint()
-                jtp.positions = [js.position[js.name.index(joint)] for joint in rt.joint_trajectory.joint_names]
-                if include_velocity:
-                    jtp.velocities = [js.velocity[js.name.index(joint)] for joint in rt.joint_trajectory.joint_names]
-                if include_effort:
-                    jtp.accelerations = [js.effort[js.name.index(joint)] for joint in rt.joint_trajectory.joint_names]
-                jtp.time_from_start = self._joint_recorded_times[idx] - self._joint_recorded_times[0]
-                rt.joint_trajectory.points.append(jtp)
+                try:
+                    jtp.positions = [js.position[js.name.index(joint)] for joint in rt.joint_trajectory.joint_names]
+                except ValueError:
+                    # This specific JS sample does not contain the desired joints, skip it
+                    continue
+                else:
+                    if include_velocity:
+                        jtp.velocities = [js.velocity[js.name.index(joint)] for joint in rt.joint_trajectory.joint_names]
+                    if include_effort:
+                        jtp.accelerations = [js.effort[js.name.index(joint)] for joint in rt.joint_trajectory.joint_names]
+                    jtp.time_from_start = self._joint_recorded_times[idx] - self._joint_recorded_times[0]
+                    rt.joint_trajectory.points.append(jtp)
 
         # ... as well as an End Effector trajectory
         eft = Path()
