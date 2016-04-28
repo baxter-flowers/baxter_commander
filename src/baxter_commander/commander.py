@@ -258,6 +258,11 @@ class ArmCommander(Limb):
         for eef_pose in eef_poses:
             ik_req.pose_stamp.append(eef_pose)
 
+        if len(seeds) == 0:
+            seeds = [self.get_current_state()]*len(eef_poses)
+        for seed in seeds:
+            ik_req.seed_angles.append(seed.joint_state)
+
         resp = self._kinematics_services['ik']['trac']['service'].call(ik_req)
 
         solutions = []
