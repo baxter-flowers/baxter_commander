@@ -71,10 +71,8 @@ class ArmCommander(Limb):
         self._kinematics_pykdl = baxter_kinematics(name)
 
         if self._selected_ik in self._kinematics_names['ik']:
-            print self._kinematics_names['ik'][self._selected_ik], '...'
             rospy.wait_for_service(self._kinematics_names['ik'][self._selected_ik])
         if self._selected_fk in self._kinematics_names['fk']:
-            print self._kinematics_names['fk'][self._selected_fk], '...'
             rospy.wait_for_service(self._kinematics_names['fk'][self._selected_fk])
 
         # Execution attributes
@@ -142,11 +140,12 @@ class ArmCommander(Limb):
         state.joint_state.effort = map(self.joint_effort, list_joint_names)
         return state
 
-    def get_ik(self, eef_poses, seeds=[]):
+    def get_ik(self, eef_poses, seeds=(), params=None):
         """
         Return IK solutions of this arm's end effector according to the method declared in the constructor
         :param eef_poses: a PoseStamped or a list [[x, y, z], [x, y, z, w]] in world frame or a list of PoseStamped
         :param seeds: a single seed or a list of seeds of type RobotState for each input pose
+        :param params: dictionary containing optional non-generic IK parameters
         :return: a list of RobotState for each input pose in input or a single RobotState
         TODO: accept also a Point (baxter_pykdl's IK accepts orientation=None)
         Child methods wait for a *list* of pose(s) and a *list* of seed(s) for each pose
@@ -168,7 +167,7 @@ class ArmCommander(Limb):
             else:
                 raise TypeError("ArmCommander.get_ik() accepts only a list of Postamped or [[x, y, z], [x, y, z, w]], got {}".format(str(type(eef_pose))))
 
-        output = self._kinematics_services['ik'][self._selected_ik]['func'](input, seeds)
+        output = self._kinematics_services['ik'][self._selected_ik]['func'](input, seeds, params)
         return output if len(eef_poses)>1 else output[0]
 
     def get_fk(self, frame_id=None, robot_state=None):
@@ -211,7 +210,7 @@ class ArmCommander(Limb):
         else:
             return None
 
-    def _get_ik_pykdl(self, eef_poses, seeds=()):
+    def _get_ik_pykdl(self, eef_poses, seeds=(), params=None):
         solutions = []
         for pose_num, eef_pose in enumerate(eef_poses):
             if eef_pose.header.frame_id.strip('/') != self._world.strip('/'):
@@ -231,7 +230,7 @@ class ArmCommander(Limb):
             solutions.append(rs)
         return solutions
 
-    def _get_ik_robot(self, eef_poses, seeds=()):
+    def _get_ik_robot(self, eef_poses, seeds=(), params=None):
         ik_req = SolvePositionIKRequest()
 
         for eef_pose in eef_poses:
@@ -241,15 +240,20 @@ class ArmCommander(Limb):
         for seed in seeds:
             ik_req.seed_angles.append(seed.joint_state)
 
-        resp = self._kinematics_services['ik']['robot']['service'].call(ik_req)
+        resp = self._kinematics_services['ik']['robot']['service'].call(ik_req, params)
 
         solutions = []
         for j, v in zip(resp.joints, resp.isValid):
             solutions.append(RobotState(is_diff=False, joint_state=j) if v else None)
         return solutions
 
-    def _get_ik_trac(self, eef_poses, seeds=()):
+    def _get_ik_trac(self, eef_poses, seeds=(), params=None):
         ik_req = GetConstrainedPositionIKRequest()
+        if params is None:
+            ik_req.num_steps = 1
+        else:
+            ik_req.end_tolerance = params['end_tolerance']
+            ik_req.num_steps = params['num_attempts']
 
         for eef_pose in eef_poses:
             ik_req.pose_stamp.append(eef_pose)
