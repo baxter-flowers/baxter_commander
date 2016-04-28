@@ -15,7 +15,7 @@ from control_msgs.msg import FollowJointTrajectoryAction, FollowJointTrajectoryG
 from sensor_msgs.msg import JointState
 from geometry_msgs.msg import Pose, PoseStamped
 from threading import Lock
-from copy import deepcopy
+from trac_ik_baxter.srv import GetConstrainedPositionIK, GetConstrainedPositionIKRequest
 from transformations import pose_to_list, list_to_pose
 from tf import TransformListener
 
@@ -52,7 +52,7 @@ class ArmCommander(Limb):
         self._kinematics_names = {'fk': {'ros': 'compute_fk'},
                                   'ik': {'ros': 'compute_ik',
                                          'robot': 'ExternalTools/{}/PositionKinematicsNode/IKService'.format(name),
-                                         'trac': 'compute_trac_ik'}}
+                                         'trac': 'trac_ik_{}'.format(name)}}
 
         self._kinematics_services = {'fk': {'ros': {'service': rospy.ServiceProxy(self._kinematics_names['fk']['ros'], GetPositionFK),
                                                     'func': self._get_fk_ros},
@@ -61,7 +61,7 @@ class ArmCommander(Limb):
                                                     'func': self._get_ik_ros},
                                             'robot': {'service': rospy.ServiceProxy(self._kinematics_names['ik']['robot'], SolvePositionIK),
                                                       'func': self._get_ik_robot},
-                                            'trac': {'service': rospy.ServiceProxy(self._kinematics_names['ik']['trac'], SolvePositionIK),
+                                            'trac': {'service': rospy.ServiceProxy(self._kinematics_names['ik']['trac'], GetConstrainedPositionIK),
                                                      'func': self._get_ik_trac},
                                             'kdl': {'func': self._get_ik_pykdl}}}
         self._selected_ik = ik
@@ -249,14 +249,10 @@ class ArmCommander(Limb):
         return solutions
 
     def _get_ik_trac(self, eef_poses, seeds=()):
-        ik_req = SolvePositionIKRequest()
+        ik_req = GetConstrainedPositionIKRequest()
 
         for eef_pose in eef_poses:
             ik_req.pose_stamp.append(eef_pose)
-
-        ik_req.seed_mode = ik_req.SEED_USER if len(seeds) > 0 else ik_req.SEED_CURRENT
-        for seed in seeds:
-            ik_req.seed_angles.append(seed.joint_state)
 
         resp = self._kinematics_services['ik']['trac']['service'].call(ik_req)
 
