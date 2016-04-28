@@ -34,6 +34,9 @@
   <build_depend>control_msgs</build_depend>
   <run_depend>control_msgs</run_depend>
   
+  <build_depend>trac_ik_baxter</build_depend>
+  <run_depend>trac_ik_baxter</run_depend>
+  
   <build_depend>baxter_core_msgs</build_depend>
   <run_depend>baxter_core_msgs</run_depend>
   <build_depend>baxter_interface</build_depend>

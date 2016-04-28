@@ -30,11 +30,12 @@ class ArmCommander(Limb):
     This class overloads Limb from the  Baxter Python SDK adding the support of trajectories via RobotState and RobotTrajectory messages
     Allows to control the entire arm either in joint space, or in task space, or (later) with path planning, all with simulation
     """
-    def __init__(self, name, rate=100, kinematics='robot', default_kv_max=1., default_ka_max=0.5):
+    def __init__(self, name, rate=100, fk='kdl', ik='robot', default_kv_max=1., default_ka_max=0.5):
         """
         :param name: 'left' or 'right'
         :param rate: Rate of the control loop for execution of motions
-        :param kinematics: Kinematics solver, "robot", "kdl" or "ros"
+        :param fk: Name of the Forward Kinematics solver, "robot", "kdl", "trac" or "ros"
+        :param ik: Name of the Inverse Kinematics solver, "robot", "kdl", "trac" or "ros"
         :param default_kv_max: Default K maximum for velocity
         :param default_ka_max: Default K maximum for acceleration
         """
@@ -47,26 +48,34 @@ class ArmCommander(Limb):
         self._tf_listener = TransformListener()
         self.recorder = Recorder(name)
 
-        # Kinematics services: Selection among different services
-        self._kinematics_selected = kinematics
-        self._kinematics_services = {'kdl': {'fk': self._get_fk_pykdl, 'ik': self._get_ik_pykdl},
-                                     'robot': {'fk': self._get_fk_robot, 'ik': self._get_ik_robot},
-                                     'ros': {'fk': self._get_fk_ros, 'ik': self._get_ik_ros}}
+        # Kinematics services: names and services (if relevant)
+        self._kinematics_names = {'fk': {'ros': 'compute_fk'},
+                                  'ik': {'ros': 'compute_ik',
+                                         'robot': 'ExternalTools/{}/PositionKinematicsNode/IKService'.format(name),
+                                         'trac': 'compute_trac_ik'}}
+
+        self._kinematics_services = {'fk': {'ros': {'service': rospy.ServiceProxy(self._kinematics_names['fk']['ros'], GetPositionFK),
+                                                    'func': self._get_fk_ros},
+                                            'kdl': {'func': self._get_fk_pykdl}},
+                                     'ik': {'ros': {'service': rospy.ServiceProxy(self._kinematics_names['ik']['ros'], GetPositionIK),
+                                                    'func': self._get_ik_ros},
+                                            'robot': {'service': rospy.ServiceProxy(self._kinematics_names['ik']['robot'], SolvePositionIK),
+                                                      'func': self._get_ik_robot},
+                                            'trac': {'service': rospy.ServiceProxy(self._kinematics_names['ik']['trac'], SolvePositionIK),
+                                                     'func': self._get_ik_trac},
+                                            'kdl': {'func': self._get_ik_pykdl}}}
+        self._selected_ik = ik
+        self._selected_fk = fk
 
         # Kinematics services: PyKDL
         self._kinematics_pykdl = baxter_kinematics(name)
 
-        # Kinematics services: Robot
-        #self._f_kinematics_robot_name = 'ExternalTools/{}/PositionKinematicsNode/FKService'.format(name)
-        #self._f_kinematics_robot = rospy.ServiceProxy(self._f_kinematics_robot_name, ) # This service doesnt exist?
-        self._i_kinematics_robot_name = 'ExternalTools/{}/PositionKinematicsNode/IKService'.format(name)
-        self._i_kinematics_robot = rospy.ServiceProxy(self._i_kinematics_robot_name, SolvePositionIK)
-
-        # Kinematics services: ROS
-        self._f_kinematics_ros_name = '/compute_fk'
-        self._f_kinematics_ros = rospy.ServiceProxy(self._f_kinematics_ros_name, GetPositionFK)
-        self._i_kinematics_ros_name = '/compute_ik'
-        self._i_kinematics_ros = rospy.ServiceProxy(self._i_kinematics_ros_name, GetPositionIK)
+        if self._selected_ik in self._kinematics_names['ik']:
+            print self._kinematics_names['ik'][self._selected_ik], '...'
+            rospy.wait_for_service(self._kinematics_names['ik'][self._selected_ik])
+        if self._selected_fk in self._kinematics_names['fk']:
+            print self._kinematics_names['fk'][self._selected_fk], '...'
+            rospy.wait_for_service(self._kinematics_names['fk'][self._selected_fk])
 
         # Execution attributes
         rospy.Subscriber('/robot/limb/{}/collision_detection_state'.format(name), CollisionDetectionState, self._cb_collision, queue_size=1)
@@ -79,7 +88,6 @@ class ArmCommander(Limb):
         self._display_traj = rospy.Publisher("/move_group/display_planned_path", DisplayTrajectory, queue_size=1)
         self._gripper.calibrate()
 
-        rospy.loginfo("ArmCommander({}): Waiting for action server {}...".format(self.name, action_server_name))
         self.client.wait_for_server()
 
     ######################################### CALLBACKS #########################################
@@ -160,7 +168,7 @@ class ArmCommander(Limb):
             else:
                 raise TypeError("ArmCommander.get_ik() accepts only a list of Postamped or [[x, y, z], [x, y, z, w]], got {}".format(str(type(eef_pose))))
 
-        output = self._kinematics_services[self._kinematics_selected]['ik'](input, seeds)
+        output = self._kinematics_services['ik'][self._selected_ik]['func'](input, seeds)
         return output if len(eef_poses)>1 else output[0]
 
     def get_fk(self, frame_id=None, robot_state=None):
@@ -168,12 +176,13 @@ class ArmCommander(Limb):
         Return The FK solution oth this robot state according to the method declared in the constructor
         robot_state = None will give the current endpoint pose in frame_id
         :param robot_state: a RobotState message
+        :param frame_id: the frame you want the endpoint pose into
         :return: [[x, y, z], [x, y, z, w]]
         """
         if frame_id is None:
             frame_id = self._world
         if isinstance(robot_state, RobotState) or robot_state is None:
-            return self._kinematics_services[self._kinematics_selected]['fk'](frame_id, robot_state)
+            return self._kinematics_services['fk'][self._selected_fk]['func'](frame_id, robot_state)
         else:
             raise TypeError("ArmCommander.get_fk() accepts only a RobotState, got {}".format(str(type(robot_state))))
 
@@ -182,12 +191,6 @@ class ArmCommander(Limb):
             state = self.get_current_state()
         fk = self._kinematics_pykdl.forward_position_kinematics(dict(zip(state.joint_state.name, state.joint_state.position)))
         return [fk[:3], fk[-4:]]
-
-    def _get_fk_robot(self, frame_id = None, state=None):
-        if state is not None:
-            raise NotImplementedError("_get_fk_robot has no FK service provided by the robot except for its current endpoint pose")
-        ps = list_to_pose(self.endpoint_pose(), self._world)
-        return self._tf_listener.transformPose(frame_id, ps)
 
     def _get_fk_ros(self, frame_id = None, state=None):
         rqst = GetPositionFKRequest()
@@ -201,15 +204,14 @@ class ArmCommander(Limb):
             rqst.robot_state = self.get_current_state()
         else:
             raise AttributeError("Provided state is an invalid type")
-        rospy.wait_for_service(self._f_kinematics_ros_name)
-        fk_answer = self._f_kinematics_ros.call(rqst)
+        fk_answer = self._kinematics_services['fk']['ros']['service'].call(rqst)
 
         if fk_answer.error_code.val==1:
             return fk_answer.pose_stamped[0]
         else:
             return None
 
-    def _get_ik_pykdl(self, eef_poses, seeds=[]):
+    def _get_ik_pykdl(self, eef_poses, seeds=()):
         solutions = []
         for pose_num, eef_pose in enumerate(eef_poses):
             if eef_pose.header.frame_id.strip('/') != self._world.strip('/'):
@@ -229,7 +231,7 @@ class ArmCommander(Limb):
             solutions.append(rs)
         return solutions
 
-    def _get_ik_robot(self, eef_poses, seeds=[]):
+    def _get_ik_robot(self, eef_poses, seeds=()):
         ik_req = SolvePositionIKRequest()
 
         for eef_pose in eef_poses:
@@ -239,24 +241,39 @@ class ArmCommander(Limb):
         for seed in seeds:
             ik_req.seed_angles.append(seed.joint_state)
 
-        rospy.wait_for_service(self._i_kinematics_robot_name, 5.0)
-        resp = self._i_kinematics_robot(ik_req)
+        resp = self._kinematics_services['ik']['robot']['service'].call(ik_req)
 
         solutions = []
         for j, v in zip(resp.joints, resp.isValid):
             solutions.append(RobotState(is_diff=False, joint_state=j) if v else None)
         return solutions
 
-    def _get_ik_ros(self, eef_poses, seeds=[]):
+    def _get_ik_trac(self, eef_poses, seeds=()):
+        ik_req = SolvePositionIKRequest()
+
+        for eef_pose in eef_poses:
+            ik_req.pose_stamp.append(eef_pose)
+
+        ik_req.seed_mode = ik_req.SEED_USER if len(seeds) > 0 else ik_req.SEED_CURRENT
+        for seed in seeds:
+            ik_req.seed_angles.append(seed.joint_state)
+
+        resp = self._kinematics_services['ik']['trac']['service'].call(ik_req)
+
+        solutions = []
+        for j, v in zip(resp.joints, resp.isValid):
+            solutions.append(RobotState(is_diff=False, joint_state=j) if v else None)
+        return solutions
+
+    def _get_ik_ros(self, eef_poses, seeds=()):
         rqst = GetPositionIKRequest()
         rqst.ik_request.avoid_collisions = True
         rqst.ik_request.group_name = self.group_name()
-        rospy.wait_for_service(self._i_kinematics_ros_name)
 
         solutions = []
         for pose_num, eef_pose in enumerate(eef_poses):
             rqst.ik_request.pose_stamped = eef_pose  # Do we really to do a separate call for each pose? _vector not used
-            ik_answer = self._i_kinematics_ros.call(rqst)
+            ik_answer = self._kinematics_services['ik']['ros']['service'].call(rqst)
 
             if len(seeds) > 0:
                 rqst.ik_request.robot_state = seeds[pose_num]
