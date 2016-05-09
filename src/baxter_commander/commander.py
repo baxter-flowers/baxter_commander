@@ -388,8 +388,11 @@ class ArmCommander(Limb):
         # get joint names
         joint_names = self.joint_names()
         # create a random joint state
-        bounds = np.array(self.joint_limits()['limits'])
-        joint_state = np.random.uniform(bounds[:,0], bounds[:,1], len(joint_names))
+        bounds = []
+        for key, value in self.joint_limits().iteritems():
+            bounds.append(value)
+        bounds = np.array(bounds)
+        joint_state = np.random.uniform(bounds[:, 0], bounds[:, 1], len(joint_names))
         # append it in a robot state
         goal = RobotState()
         goal.joint_state.name = joint_names
