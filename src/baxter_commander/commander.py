@@ -240,7 +240,7 @@ class ArmCommander(Limb):
         for seed in seeds:
             ik_req.seed_angles.append(seed.joint_state)
 
-        resp = self._kinematics_services['ik']['robot']['service'].call(ik_req, params)
+        resp = self._kinematics_services['ik']['robot']['service'].call(ik_req)
 
         solutions = []
         for j, v in zip(resp.joints, resp.isValid):
