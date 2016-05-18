@@ -30,7 +30,7 @@ class ArmCommander(Limb):
     This class overloads Limb from the  Baxter Python SDK adding the support of trajectories via RobotState and RobotTrajectory messages
     Allows to control the entire arm either in joint space, or in task space, or (later) with path planning, all with simulation
     """
-    def __init__(self, name, rate=100, fk='kdl', ik='robot', default_kv_max=1., default_ka_max=0.5):
+    def __init__(self, name, rate=100, fk='kdl', ik='trac', default_kv_max=1., default_ka_max=0.5):
         """
         :param name: 'left' or 'right'
         :param rate: Rate of the control loop for execution of motions

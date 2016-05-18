@@ -10,4 +10,6 @@
   <!-- Move group is only needed if it provides FK and IK (in ROS mode) -->
   <!--<include file="$(find baxter_commander)/launch/move_group.launch"/>-->
   
+  <include file="$(find trac_ik_baxter)/launch/ik_server.launch"/>
+  
 </launch>
