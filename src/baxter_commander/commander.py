@@ -140,11 +140,12 @@ class ArmCommander(Limb):
         state.joint_state.effort = map(self.joint_effort, list_joint_names)
         return state
 
-    def get_ik(self, eef_poses, seeds=(), params=None):
+    def get_ik(self, eef_poses, seeds=(), source=None, params=None):
         """
         Return IK solutions of this arm's end effector according to the method declared in the constructor
         :param eef_poses: a PoseStamped or a list [[x, y, z], [x, y, z, w]] in world frame or a list of PoseStamped
         :param seeds: a single seed or a list of seeds of type RobotState for each input pose
+        :param source: 'robot', 'trac', 'kdl'... the IK source for this call (warning: the source might not be instanciated)
         :param params: dictionary containing optional non-generic IK parameters
         :return: a list of RobotState for each input pose in input or a single RobotState
         TODO: accept also a Point (baxter_pykdl's IK accepts orientation=None)
@@ -167,7 +168,7 @@ class ArmCommander(Limb):
             else:
                 raise TypeError("ArmCommander.get_ik() accepts only a list of Postamped or [[x, y, z], [x, y, z, w]], got {}".format(str(type(eef_pose))))
 
-        output = self._kinematics_services['ik'][self._selected_ik]['func'](input, seeds, params)
+        output = self._kinematics_services['ik'][self._selected_ik if source is None else source]['func'](input, seeds, params)
         return output if len(eef_poses)>1 else output[0]
 
     def get_fk(self, frame_id=None, robot_state=None):
