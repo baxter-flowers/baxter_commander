@@ -198,7 +198,6 @@ class ArmCommander(Limb):
         if state is not None:
             raise NotImplementedError("_get_fk_robot has no FK service provided by the robot except for its current endpoint pose")
         ps = list_to_pose(self.endpoint_pose(), self._world)
-        rospy.logerr("####################")
         return self._tf_listener.transformPose(frame_id, ps)
 
     def _get_fk_ros(self, frame_id = None, state=None):
