@@ -479,24 +479,40 @@ class ArmCommander(Limb):
             raise NotImplementedError("ArmCommander.display() expected type RobotTrajectory or JointTrajectory, got {}".format(str(type(trajectory))))
         self._display_traj.publish(dt)
 
-    def execute(self, trajectory, test=None):
+    def execute(self, trajectory, test=None, epsilon=0.1):
         """
         Safely executes a trajectory in joint space on the robot or simulate through RViz and its Moveit plugin (File moveit.rviz must be loaded into RViz)
         This method is BLOCKING until the command succeeds or failure occurs i.e. the user interacted with the cuff or collision has been detected
         Non-blocking needs should deal with the JointTrajectory action server
         :param trajectory: either a RobotTrajectory or a JointTrajectory
         :param test: pointer to a function that returns True if execution must stop now. /!\ Should be fast, it will be called at 100Hz!
+        :param epsilon: distance treshold on the first point. If distance with first point of the trajectory is greather than espilon execute a controlled trajectory to the first point. Put float(inf) value to bypass this functionnality
         :return: True if execution ended successfully, False otherwise
         """
+        def distance_to_first_point(point):
+            joint_pos = np.array(point.positions)
+            current = np.array(self.get_current_state().joint_state.position)
+            return np.linalg.norm(current - joint_pos)
+
         self.display(trajectory)
         with self._stop_lock:
             self._stop_reason = ''
         if isinstance(trajectory, RobotTrajectory):
             trajectory = trajectory.joint_trajectory
-        elif isinstance(trajectory, JointTrajectory):
-            trajectory = trajectory
+        elif not isinstance(trajectory, JointTrajectory):
+            raise TypeError("Execute only accept RobotTrajectory or JointTrajectory")
         ftg = FollowJointTrajectoryGoal()
         ftg.trajectory = trajectory
+
+        # check if it is necessary to move to the first point
+        if distance_to_first_point(trajectory.points[0]) > epsilon:
+            # convert first point to robot state
+            rs = self.get_current_state()
+            rs.joint_state.position = trajectory.points[0].positions
+            # move to the first point
+            self.move_to_controlled(rs)
+
+        # execute the input trajectory
         self.client.send_goal(ftg)
         # Blocking part, wait for the callback or a collision or a user manipulation to stop the trajectory
 
