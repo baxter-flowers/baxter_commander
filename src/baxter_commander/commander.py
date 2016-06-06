@@ -30,7 +30,7 @@ class ArmCommander(Limb):
     This class overloads Limb from the  Baxter Python SDK adding the support of trajectories via RobotState and RobotTrajectory messages
     Allows to control the entire arm either in joint space, or in task space, or (later) with path planning, all with simulation
     """
-    def __init__(self, name, rate=100, fk='kdl', ik='trac', default_kv_max=1., default_ka_max=0.5):
+    def __init__(self, name, rate=100, fk='robot', ik='trac', default_kv_max=1., default_ka_max=0.5):
         """
         :param name: 'left' or 'right'
         :param rate: Rate of the control loop for execution of motions
@@ -56,7 +56,8 @@ class ArmCommander(Limb):
 
         self._kinematics_services = {'fk': {'ros': {'service': rospy.ServiceProxy(self._kinematics_names['fk']['ros'], GetPositionFK),
                                                     'func': self._get_fk_ros},
-                                            'kdl': {'func': self._get_fk_pykdl}},
+                                            'kdl': {'func': self._get_fk_pykdl},
+                                            'robot': {'func': self._get_fk_robot}},
                                      'ik': {'ros': {'service': rospy.ServiceProxy(self._kinematics_names['ik']['ros'], GetPositionIK),
                                                     'func': self._get_ik_ros},
                                             'robot': {'service': rospy.ServiceProxy(self._kinematics_names['ik']['robot'], SolvePositionIK),
@@ -191,6 +192,13 @@ class ArmCommander(Limb):
             state = self.get_current_state()
         fk = self._kinematics_pykdl.forward_position_kinematics(dict(zip(state.joint_state.name, state.joint_state.position)))
         return [fk[:3], fk[-4:]]
+
+    def _get_fk_robot(self, frame_id = None, state=None):
+        # Keep this half-working FK, still used by generate_cartesian_path (trajectories.py)
+        if state is not None:
+            raise NotImplementedError("_get_fk_robot has no FK service provided by the robot except for its current endpoint pose")
+        ps = list_to_pose(self.endpoint_pose(), self._world)
+        return self._tf_listener.transformPose(frame_id, ps)
 
     def _get_fk_ros(self, frame_id = None, state=None):
         rqst = GetPositionFKRequest()
