@@ -471,11 +471,18 @@ class ArmCommander(Limb):
 
     def display(self, trajectory):
         """
-        Display a joint-space trajectory in RVIz loaded with the Moveit plugin
-        :param trajectory: a RobotTrajectory message
+        Display a joint-space trajectory or a robot state in RVIz loaded with the Moveit plugin
+        :param trajectory: a RobotTrajectory, JointTrajectory, RobotState or JointState message
         """
         # Publish the DisplayTrajectory (only for trajectory preview in RViz)
         # includes a convert of float durations in rospy.Duration()
+
+        def js_to_rt(js):
+            rt = RobotTrajectory()
+            rt.joint_trajectory.joint_names = js.name
+            rt.joint_trajectory.points.append(JointTrajectoryPoint(positions=js.position))
+            return rt
+
         dt = DisplayTrajectory()
         if isinstance(trajectory, RobotTrajectory):
             dt.trajectory.append(trajectory)
@@ -483,8 +490,12 @@ class ArmCommander(Limb):
             rt = RobotTrajectory()
             rt.joint_trajectory = trajectory
             dt.trajectory.append(rt)
+        elif isinstance(trajectory, RobotState):
+            dt.trajectory.append(js_to_rt(trajectory.joint_state))
+        elif isinstance(trajectory, JointState):
+            dt.trajectory.append(js_to_rt(trajectory))
         else:
-            raise NotImplementedError("ArmCommander.display() expected type RobotTrajectory or JointTrajectory, got {}".format(str(type(trajectory))))
+            raise NotImplementedError("ArmCommander.display() expected type RobotTrajectory, JointTrajectory, RobotState or JointState, got {}".format(str(type(trajectory))))
         self._display_traj.publish(dt)
 
     def execute(self, trajectory, test=None, epsilon=0.1):
