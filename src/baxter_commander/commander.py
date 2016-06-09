@@ -505,12 +505,13 @@ class ArmCommander(Limb):
         Non-blocking needs should deal with the JointTrajectory action server
         :param trajectory: either a RobotTrajectory or a JointTrajectory
         :param test: pointer to a function that returns True if execution must stop now. /!\ Should be fast, it will be called at 100Hz!
-        :param epsilon: distance treshold on the first point. If distance with first point of the trajectory is greather than espilon execute a controlled trajectory to the first point. Put float(inf) value to bypass this functionnality
+        :param epsilon: distance threshold on the first point. If distance with first point of the trajectory is greater than espilon execute a controlled trajectory to the first point. Put float(inf) value to bypass this functionality
         :return: True if execution ended successfully, False otherwise
         """
-        def distance_to_first_point(point):
+        def distance_to_first_point(point, joint_names):
             joint_pos = np.array(point.positions)
-            current = np.array(self.get_current_state().joint_state.position)
+            current = self.get_current_state()
+            current = np.array([current.joint_state.position[current.joint_state.name.index(joint)] for joint in joint_names])
             return np.linalg.norm(current - joint_pos)
 
         self.display(trajectory)
@@ -524,7 +525,7 @@ class ArmCommander(Limb):
         ftg.trajectory = trajectory
 
         # check if it is necessary to move to the first point
-        if distance_to_first_point(trajectory.points[0]) > epsilon:
+        if distance_to_first_point(trajectory.points[0], trajectory.joint_names) > epsilon:
             # convert first point to robot state
             rs = self.get_current_state()
             rs.joint_state.position = trajectory.points[0].positions
