@@ -508,11 +508,9 @@ class ArmCommander(Limb):
         :param epsilon: distance threshold on the first point. If distance with first point of the trajectory is greater than espilon execute a controlled trajectory to the first point. Put float(inf) value to bypass this functionality
         :return: True if execution ended successfully, False otherwise
         """
-        def distance_to_first_point(point, joint_names):
+        def distance_to_first_point(point):
             joint_pos = np.array(point.positions)
-            current = self.get_current_state()
-            current = np.array([current.joint_state.position[current.joint_state.name.index(joint)] for joint in joint_names])
-            return np.linalg.norm(current - joint_pos)
+            return np.linalg.norm(current_array - joint_pos)
 
         self.display(trajectory)
         with self._stop_lock:
@@ -525,9 +523,13 @@ class ArmCommander(Limb):
         ftg.trajectory = trajectory
 
         # check if it is necessary to move to the first point
-        if distance_to_first_point(trajectory.points[0], trajectory.joint_names) > epsilon:
+        current = self.get_current_state()
+        current_array = np.array([current.joint_state.position[current.joint_state.name.index(joint)] for joint in trajectory.joint_names])
+
+        if distance_to_first_point(trajectory.points[0]) > epsilon:
             # convert first point to robot state
-            rs = self.get_current_state()
+            rs = RobotState()
+            rs.joint_state.name = trajectory.joint_names
             rs.joint_state.position = trajectory.points[0].positions
             # move to the first point
             self.move_to_controlled(rs)

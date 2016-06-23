@@ -115,7 +115,7 @@ def trapezoidal_speed_trajectory(goal, start,
     rt = RobotTrajectory()
     joints = []
     start_state = start.joint_state.position
-    goal_state = goal.joint_state.position
+    goal_state = [goal.joint_state.position[goal.joint_state.name.index(joint)] for joint in start.joint_state.name]
 
     # calculate the max joint velocity
     dist = np.array(goal_state) - np.array(start_state)
