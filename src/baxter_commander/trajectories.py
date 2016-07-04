@@ -6,6 +6,7 @@ import rospy
 import numpy as np
 from . import states
 from copy import deepcopy
+import matplotlib.pyplot as plt
 import tf
 
 
@@ -304,3 +305,73 @@ def minimum_jerk_trajectory(goal, start, commander, max_speed=0.2, nb_points=100
     rt.joint_trajectory.joint_names = start.joint_state.name
     success /= nb_points
     return rt, success
+
+
+def get_position_array(trajectory):
+    """
+    Extract a 7-DoF position array from this RobotTrajectory
+    :param trajectory: RobotTrajectory
+    :return: position[joint][t]
+    """
+    return np.array([point.positions for point in trajectory.joint_trajectory.points]).T
+
+
+def get_velocity_array(trajectory):
+    """
+    Extract a 7-DoF velocity array from this RobotTrajectory
+    :param trajectory: RobotTrajectory
+    :return: velocity[joint][t] or [] if velocity is not filled in
+    """
+    return np.array([point.velocities for point in trajectory.joint_trajectory.points]).T
+
+
+def compute_velocity_array(trajectory):
+    """
+    Compute the velocity in rad/s from positions, the first point has a velocity of 0 rad/s
+    :param trajectory: RobotTrajectory
+    :return: velocity[joint][t]
+    """
+    points = []
+    position = get_position_array(trajectory)
+    time = get_time_array(trajectory)
+    for joint in range(7):
+        velocities = [0.]
+        for point in range(1, len(time)):
+            delta_pos = position[joint][point] - position[joint][point-1]
+            delta_t = time[point] - time[point-1]
+            velocities.append(delta_pos/delta_t)
+        points.append(velocities)
+    return np.array(points)
+
+
+def get_time_array(trajectory):
+    """
+    Return the array of durations  (in sec) from the start of trajectory
+    :param trajectory: RobotTrajectory
+    :return: array of time from start e.g. [0.05, 1.5, 2.1, ...]
+    """
+    return np.array([point.time_from_start.to_sec() for point in trajectory.joint_trajectory.points])
+
+
+def plot(trajectory, recompute_velocity=False):
+    """
+    Plot positions and velocities of all 7 joints
+    :param trajectory: RobotTrajectory
+    :param recompute_velocity: Compute the velocity by derivate the position instead of using provided data
+    """
+    position = get_position_array(trajectory)
+    velocity = compute_velocity_array(trajectory) if recompute_velocity else get_velocity_array(trajectory)
+    time = get_time_array(trajectory)
+    colors = ['b', 'g', 'r', 'c', 'y', 'm', 'b']
+    for joint_idx, joint in enumerate(['s0', 's1', 'e0', 'e1', 'w0', 'w1', 'w2']):
+        plt.plot(time, position[joint_idx], label=joint + ' (rad)', color=colors[joint_idx])
+        if len(velocity) > 0:
+            plt.plot(time, velocity[joint_idx], label=joint + ' (rad/s)', linestyle='--', color=colors[joint_idx])
+
+
+def show():
+    """
+    Show the plot
+    """
+    plt.legend()
+    plt.show()
