@@ -7,7 +7,8 @@ from numpy import ndarray, dot, sqrt, array, arccos, inner, zeros, fill_diagonal
 import tf
 
 __all__ = ['pose_to_list', 'quat_to_list', 'list_to_quat', 'list_to_pose', 'list_to_pose', 'quat_rotate',
-           'list_to_m4x4', 'm4x4_to_list', 'multiply_transform', 'scale_transform', 'inverse_transform',
+           'list_to_m4x4', 'm4x4_to_list', 'multiply_transform', 'multiply_transform_old',
+           'scale_transform', 'inverse_transform',
            'raw_list_to_list', 'list_to_raw_list', 'distance', 'distance_quat', 'norm', 'identity',
            'inverse_m4x4_transform']
 
@@ -104,9 +105,6 @@ def quat_rotate(rotation, vector):
     :param vector: the vector to rotate
     :return: the rotated vector
     """
-    def quat_mult_quat(q1, q2):
-        return (q1[0]*q2[0], q1[1]*q2[1], q1[2]*q2[2], q1[3]*q2[3])
-
     def quat_mult_point(q, w):
         return (q[3] * w[0] + q[1] * w[2] - q[2] * w[1],
                 q[3] * w[1] + q[2] * w[0] - q[0] * w[2],
@@ -119,6 +117,21 @@ def quat_rotate(rotation, vector):
 
 
 def multiply_transform(t1, t2):
+    """
+    Combines two transformations together
+    The order is translation first, rotation then
+    :param t1: [[x, y, z], [x, y, z, w]] or matrix 4x4
+    :param t2: [[x, y, z], [x, y, z, w]] or matrix 4x4
+    :return: The combination t1-t2 in the form [[x, y, z], [x, y, z, w]] or matrix 4x4
+    """
+    if _is_indexable(t1) and len(t1) == 2:
+        return [list(quat_rotate(t1[1], t2[0]) + array(t1[0])),
+                list(tf.transformations.quaternion_multiply(t1[1], t2[1]))]
+    else:
+        return dot(t1, t2)
+
+
+def multiply_transform_old(t1, t2):
     """
     Combines two transformations together
     The order is translation first, rotation then
