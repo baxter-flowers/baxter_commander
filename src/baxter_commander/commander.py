@@ -191,7 +191,8 @@ class ArmCommander(Limb):
         if state is None:
             state = self.get_current_state()
         fk = self._kinematics_pykdl.forward_position_kinematics(dict(zip(state.joint_state.name, state.joint_state.position)))
-        return [fk[:3], fk[-4:]]
+        ps = list_to_pose([fk[:3], fk[-4:]], self._world)
+        return self._tf_listener.transformPose(frame_id, ps)
 
     def _get_fk_robot(self, frame_id = None, state=None):
         # Keep this half-working FK, still used by generate_cartesian_path (trajectories.py)

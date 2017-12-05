@@ -1,5 +1,6 @@
 import tf
 import copy
+from transformations import pose_to_list
 
 
 def state_to_pose(state, commander, rpy=False):
@@ -12,11 +13,12 @@ def state_to_pose(state, commander, rpy=False):
     :return: tuple of position and rpy rotation
     """
     fk = commander.get_fk(robot_state=state)
-    pos = fk[0]
+    list_fk = pose_to_list(fk)
+    pos = list_fk[0]
     if rpy:
-        rot = tf.transformations.euler_from_quaternion(fk[1])
+        rot = tf.transformations.euler_from_quaternion(list_fk[1])
     else:
-        rot = fk[1]
+        rot = list_fk[1]
     return pos, rot
 
 
@@ -39,7 +41,7 @@ def correct_state_orientation(state, rpy, commander):
     quat_corrected = tf.transformations.quaternion_from_euler(rpy_new[0],
                                                               rpy_new[1],
                                                               rpy_new[2])
-    ik = commander.get_ik([pos.tolist(), quat_corrected], state)
+    ik = commander.get_ik([pos, quat_corrected], state)
     if ik is not None:
         return ik
     return state
